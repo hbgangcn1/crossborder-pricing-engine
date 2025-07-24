@@ -2,6 +2,9 @@
 9 个月跨境电商 0-1 实测：192,505 元销售额、62 单全部盈利。  
 把Ozon合作的60+运输方式的运费决策从 45 min 压缩到 3 s。
 
+知乎文章链接：
+https://zhuanlan.zhihu.com/p/1931372906899834649
+
 ## 快速体验
 ```bash
 pip install -r requirements.txt
