@@ -7,7 +7,6 @@ import sqlite3
 import streamlit as st
 import threading
 import time
-from st_aggrid import AgGrid, GridOptionsBuilder
 
 # 创建线程局部存储
 thread_local = threading.local()
@@ -321,9 +320,9 @@ def calculate_pricing(product, land_logistics, air_logistics):
     """
     try:
         # 1. 基础成本
-        unit_price      = product.get('unit_price', 0)
-        shipping_fee    = product.get('shipping_fee', 0)
-        labeling_fee    = product.get('labeling_fee', 0)
+        unit_price = product.get('unit_price', 0)
+        shipping_fee = product.get('shipping_fee', 0)
+        labeling_fee = product.get('labeling_fee', 0)
 
         # 2. 实时汇率
         exchange_rate = ExchangeRateService().get_exchange_rate()
@@ -340,30 +339,42 @@ def calculate_pricing(product, land_logistics, air_logistics):
                 price_limit = log.get('price_limit') or 0   # 0 表示无限制
                 # 先估算一个“粗定价”，用于限价过滤
                 rough_price = (
-                    (unit_price * 1.01 + labeling_fee + shipping_fee + cost + 15 * exchange_rate)
+                    (
+                        unit_price * 1.01
+                        + labeling_fee
+                        + shipping_fee
+                        + cost
+                        + 15 * exchange_rate
+                    )
                     /
-                    ((1 - 0.15) * (1 - 0.05) * (1 - 0.175) * (1 - 0.01) * (1 - 0.013))
+                    (
+                        (1 - 0.15)
+                        * (1 - 0.05)
+                        * (1 - 0.175)
+                        * (1 - 0.01)
+                        * (1 - 0.013)
+                    )
                 )
                 if price_limit == 0 or rough_price <= price_limit:
                     results.append((log, cost))
             return results
 
         land_candidates = _cost_and_filter(land_logistics)
-        air_candidates  = _cost_and_filter(air_logistics)
+        air_candidates = _cost_and_filter(air_logistics)
 
         if not land_candidates or not air_candidates:
             return None, None, None, None
 
         # 4. 选运费最低的
         best_land, land_cost = min(land_candidates, key=lambda x: x[1])
-        best_air,  air_cost  = min(air_candidates,  key=lambda x: x[1])
+        best_air,  air_cost = min(air_candidates,  key=lambda x: x[1])
 
         # 5. 精确计算最终售价（这里用你原公式即可）
-        discount_rate  = product.get('discount_rate', 0.15)
+        discount_rate = product.get('discount_rate', 0.15)
         promo_discount = product.get('promotion_discount', 0.05)
-        commission     = product.get('commission_rate', 0.175)
-        withdraw_fee   = product.get('withdrawal_fee_rate', 0.01)
-        pay_fee        = product.get('payment_processing_fee', 0.013)
+        commission = product.get('commission_rate', 0.175)
+        withdraw_fee = product.get('withdrawal_fee_rate', 0.01)
+        pay_fee = product.get('payment_processing_fee', 0.013)
 
         def final_price(cost):
             return round(
@@ -386,7 +397,7 @@ def calculate_pricing(product, land_logistics, air_logistics):
             )
 
         land_price = final_price(land_cost)
-        air_price  = final_price(air_cost)
+        air_price = final_price(air_cost)
 
         return land_price, air_price, land_cost, air_cost
 
@@ -399,10 +410,14 @@ def calculate_pricing(product, land_logistics, air_logistics):
 # 页面函数 - 产品管理
 # --------------------------
 def products_page():
-    st.title("产品管理")
     conn, c = get_db()
 
-    # ---------- 缓存 ----------
+    # ---------- 如果正在编辑，则显示编辑表单 ----------
+    if st.session_state.get("edit_product_id"):
+        edit_product_form()
+        return
+
+    # ---------- 缓存产品表 ----------
     if 'products_data' not in st.session_state:
         st.session_state.products_data = pd.read_sql(
             "SELECT id, name, category, weight_g FROM products", conn
@@ -410,31 +425,18 @@ def products_page():
     products = st.session_state.products_data
 
     # ---------- 添加/编辑 产品 ----------
-    # 用 session_state 控制展开
     if 'add_product_expanded' not in st.session_state:
         st.session_state.add_product_expanded = True
-    # 初始化表单状态
-    for k in ['has_battery', 'is_cylinder', 'battery_choice']:
-        st.session_state.setdefault(k, False if k != 'battery_choice' else "填写 Wh（瓦时）")
-
-    # 实时更新控件状态
-    def _toggle(key, value):
-        st.session_state[key] = value
-        st.rerun()
 
     with st.expander("添加新产品", expanded=st.session_state.add_product_expanded):
-        # 1. 基本信息
-        # ✅ 使用普通控件，立即响应
         st.subheader("添加新产品")
 
-        # 1. 基本信息
         col1, col2 = st.columns(2)
         name = col1.text_input("产品名称*")
         russian_name = col2.text_input("俄文名称")
         category = col1.text_input("产品类别")
         model = col2.text_input("型号")
 
-        # 2. 物理规格
         st.subheader("物理规格")
         col1, col2, col3 = st.columns(3)
         weight_g = col1.number_input("重量(g)*", min_value=0, value=0)
@@ -442,37 +444,40 @@ def products_page():
         width_cm = col3.number_input("宽(cm)*", min_value=0, value=0)
         height_cm = st.number_input("高(cm)*", min_value=0, value=0)
 
-        # 3. 包装形状
-        shape = st.radio("包装形状", ["标准包装", "圆柱形包装"], horizontal=True, key="shape_radio")
+        shape = st.radio("包装形状", ["标准包装", "圆柱形包装"], horizontal=True)
         is_cylinder = (shape == "圆柱形包装")
         cylinder_diameter = 0
         if is_cylinder:
-            cylinder_diameter = st.number_input("圆柱直径(cm)*", min_value=0.0, value=0.0)
+            cylinder_diameter = st.number_input(
+                "圆柱直径(cm)*", min_value=0.0, value=0.0)
 
-        # 4. 电池信息
-        has_battery = st.checkbox("含电池", key="battery_check")
+        has_battery = st.checkbox("含电池")
         battery_capacity_wh = 0.0
         battery_capacity_mah = 0
         battery_voltage = 0.0
         if has_battery:
-            choice = st.radio("电池容量填写方式", ["填写 Wh（瓦时）", "填写 mAh + V"], horizontal=True)
+            choice = st.radio(
+                "电池容量填写方式",
+                ["填写 Wh（瓦时）", "填写 mAh + V"],
+                horizontal=True)
             if choice == "填写 Wh（瓦时）":
-                battery_capacity_wh = st.number_input("电池容量(Wh)*", min_value=0.0, value=0.0)
+                battery_capacity_wh = st.number_input(
+                    "电池容量(Wh)*", min_value=0.0, value=0.0)
             else:
                 col1, col2 = st.columns(2)
-                battery_capacity_mah = col1.number_input("电池容量(mAh)*", min_value=0, value=0)
-                battery_voltage = col2.number_input("电池电压(V)*", min_value=0.0, value=0.0)
+                battery_capacity_mah = col1.number_input(
+                    "电池容量(mAh)*", min_value=0, value=0)
+                battery_voltage = col2.number_input(
+                    "电池电压(V)*", min_value=0.0, value=0.0)
 
-        # 5. 其他
         st.subheader("其他信息")
         col1, col2 = st.columns(2)
         has_msds = col1.checkbox("有MSDS文件")
-        unit_price = col2.number_input("单价(元)*", min_value=0.0, value=0.0)
         has_flammable = col2.checkbox("有易燃液体")
+        unit_price = col2.number_input("单价(元)*", min_value=0.0, value=0.0)
         shipping_fee = col1.number_input("发货方运费(元)*", min_value=0.0, value=0.0)
         labeling_fee = st.number_input("代贴单费用(元)*", min_value=0.0, value=0.0)
 
-        # 6. 定价参数
         st.subheader("定价参数")
         col1, col2 = st.columns(2)
         discount_rate = col1.slider("画线折扣率", 0.0, 1.0, 0.15, 0.01)
@@ -484,17 +489,21 @@ def products_page():
         withdrawal_fee_rate = col1.slider("提现费率", 0.0, 0.1, 0.01, 0.001)
         payment_processing_fee = col2.slider("支付手续费率", 0.0, 0.1, 0.013, 0.001)
 
-        # 7. 提交按钮（普通按钮）
         if st.button("添加产品"):
-            required = [name, weight_g, length_cm, width_cm, height_cm,
-                        unit_price, shipping_fee, labeling_fee]
+            required = [
+                name, weight_g, length_cm, width_cm, height_cm,
+                unit_price, shipping_fee, labeling_fee
+            ]
             if is_cylinder and cylinder_diameter <= 0:
                 required.append(None)
-            if has_battery and choice == "填写 Wh（瓦时）" and battery_capacity_wh <= 0:
+            if (has_battery and choice == "填写 Wh（瓦时）" and
+                    battery_capacity_wh <= 0):
                 required.append(None)
-            if has_battery and choice == "填写 mAh + V" and (battery_capacity_mah <= 0 or battery_voltage <= 0):
+            if (has_battery and choice == "填写 mAh + V" and
+                    (battery_capacity_mah <= 0 or battery_voltage <= 0)):
                 required.append(None)
-            if any(v is None or (isinstance(v, (int, float)) and v <= 0) for v in required):
+            if any(v is None or (isinstance(v, (int, float)) and v <= 0)
+                   for v in required):
                 st.error("请填写所有必填字段")
             else:
                 c.execute(
@@ -510,7 +519,9 @@ def products_page():
                         promotion_cost_rate, min_profit_margin,
                         target_profit_margin, commission_rate,
                         withdrawal_fee_rate, payment_processing_fee
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ) VALUES (
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                    )""",
                     (
                         name, russian_name, category, model,
                         weight_g, length_cm, width_cm, height_cm,
@@ -527,73 +538,49 @@ def products_page():
                 )
                 conn.commit()
                 st.success("产品添加成功！")
-                st.session_state.products_data = pd.read_sql("SELECT id, name, category, weight_g FROM products", conn)
+                st.session_state.products_data = pd.read_sql(
+                    "SELECT id, name, category, weight_g FROM products", conn
+                )
                 st.rerun()
 
-    if not st.session_state.add_product_expanded:
-        if st.button("添加新产品"):
-            st.session_state.add_product_expanded = True
-            st.rerun()
-
-    # 批量编辑区域
+    # ---------- 批量编辑 ----------
     st.subheader("批量操作")
     with st.expander("批量编辑产品参数"):
-        # 获取所有产品
         products_df = pd.read_sql("SELECT id, name FROM products", conn)
-
         if not products_df.empty:
-            # 多选产品
-            selected_products = st.multiselect(
-                "选择要编辑的产品",
-                products_df['id'],
-                format_func=lambda x: (
-                    f"{x} - " +
-                    products_df.loc[
-                        products_df['id'] == x, 'name'
-                    ].values[0]
-                )
-            )
+            options = [
+                f"{row['id']} - {row['name']}"
+                for _, row in products_df.iterrows()]
+            selected_str = st.multiselect("选择要编辑的产品", options)
+            selected_products = [int(s.split(" - ")[0]) for s in selected_str]
 
             if selected_products:
-                # 批量编辑表单
                 with st.form("batch_edit_form"):
-                    st.info(f"已选择 {len(selected_products)} 个产品进行批量编辑")
-
+                    st.info(f"已选择 {len(selected_products)} 个产品")
                     col1, col2 = st.columns(2)
-                    with col1:
-                        new_discount_rate = st.slider(
-                            "画线折扣率", 0.0, 1.0, 0.15, 0.01
-                        )
-                        new_promotion_discount = st.slider(
-                            "活动折扣率", 0.0, 1.0, 0.05, 0.01
-                        )
-                        new_promotion_cost_rate = st.slider(
-                            "推广费用率", 0.0, 1.0, 0.115, 0.01
-                        )
-                        new_min_profit_margin = st.slider(
-                            "最低利润率", 0.0, 1.0, 0.3, 0.01
-                        )
-
-                    with col2:
-                        new_target_profit_margin = st.slider(
-                            "目标利润率", 0.0, 1.0, 0.5, 0.01
-                        )
-                        new_commission_rate = st.slider(
-                            "佣金率", 0.0, 1.0, 0.175, 0.01
-                        )
-                        new_withdrawal_fee_rate = st.slider(
-                            "提现费率", 0.0, 0.1, 0.01, 0.001
-                        )
-                        new_payment_processing_fee = st.slider(
-                            "支付手续费率", 0.0, 0.1, 0.013, 0.001
-                        )
+                    new_discount_rate = col1.slider(
+                        "画线折扣率", 0.0, 1.0, 0.15, 0.01)
+                    new_promotion_discount = col2.slider(
+                        "活动折扣率", 0.0, 1.0, 0.05, 0.01)
+                    new_promotion_cost_rate = col1.slider(
+                        "推广费用率", 0.0, 1.0, 0.115, 0.01)
+                    new_min_profit_margin = col2.slider(
+                        "最低利润率", 0.0, 1.0, 0.3, 0.01)
+                    new_target_profit_margin = col1.slider(
+                        "目标利润率", 0.0, 1.0, 0.5, 0.01)
+                    new_commission_rate = col2.slider(
+                        "佣金率", 0.0, 1.0, 0.175, 0.01)
+                    new_withdrawal_fee_rate = col1.slider(
+                        "提现费率", 0.0, 0.1, 0.01, 0.001)
+                    new_payment_processing_fee = col2.slider(
+                        "支付手续费率", 0.0, 0.1, 0.013, 0.001)
 
                     submitted = st.form_submit_button("应用批量修改")
                     if submitted:
                         try:
-                            for product_id in selected_products:
+                            for pid in selected_products:
                                 c.execute(
-                                    '''UPDATE products SET
+                                    """UPDATE products SET
                                         discount_rate = ?,
                                         promotion_discount = ?,
                                         promotion_cost_rate = ?,
@@ -602,7 +589,7 @@ def products_page():
                                         commission_rate = ?,
                                         withdrawal_fee_rate = ?,
                                         payment_processing_fee = ?
-                                        WHERE id = ?''',
+                                        WHERE id = ?""",
                                     (
                                         new_discount_rate,
                                         new_promotion_discount,
@@ -612,19 +599,14 @@ def products_page():
                                         new_commission_rate,
                                         new_withdrawal_fee_rate,
                                         new_payment_processing_fee,
-                                        product_id
+                                        pid
                                     )
                                 )
                             conn.commit()
-                            st.success(
-                                f"成功更新 {len(selected_products)} 个产品的参数！"
-                            )
-
-                            # 刷新产品缓存
+                            st.success(f"已更新 {len(selected_products)} 个产品！")
                             st.session_state.products_data = pd.read_sql(
                                 "SELECT id, name, category, weight_g "
-                                "FROM products",
-                                conn
+                                "FROM products", conn
                             )
                             st.rerun()
                         except Exception as e:
@@ -634,123 +616,188 @@ def products_page():
         else:
             st.info("暂无产品数据")
 
-    # 产品列表
+    # ---------- 产品列表（原生 checkbox） ----------
     st.subheader("产品列表")
     if not products.empty:
-        # 使用AgGrid展示数据 - 使用动态键避免重复键错误
-        grid_key = f"products_grid_{time.time()}"  # 使用时间戳确保唯一性
-        
-        gb = GridOptionsBuilder.from_dataframe(products)
-        gb.configure_pagination(paginationPageSize=5)
-        gb.configure_side_bar()
-        gb.configure_selection('multiple', use_checkbox=True)
-        grid_options = gb.build()
+        selected_list = []
+        for _, row in products.iterrows():
+            if st.checkbox(
+                f"{row['id']} - {row['name']} "
+                f"({row['category']}, {row['weight_g']}g)",
+                key=f"product_checkbox_{row['id']}"
+            ):
+                selected_list.append(row.to_dict())
 
-        grid_response = AgGrid(
-            products,
-            gridOptions=grid_options,
-            height=300,
-            width='100%',
-            data_return_mode='AS_INPUT',
-            update_mode='MODEL_CHANGED',
-            fit_columns_on_grid_load=True,
-            key=grid_key  # 使用动态键
-        )
-
-        # 获取选中的行
-        selected_rows = grid_response.get('selected_rows')
-        if selected_rows is None or selected_rows.empty:
-            st.info("请选择产品查看详情")
+        if selected_list:
+            product_id = selected_list[0]['id']
+            col_edit, col_del = st.columns(2)
+            with col_edit:
+                if st.button("编辑产品"):
+                    st.session_state.edit_product_id = product_id
+                    st.rerun()
+            with col_del:
+                if st.button("删除产品"):
+                    c.execute("DELETE FROM products WHERE id=?", (product_id,))
+                    conn.commit()
+                    st.success("产品删除成功！")
+                    st.session_state.products_data = pd.read_sql(
+                        "SELECT id, name, category, weight_g "
+                        "FROM products", conn
+                    )
+                    st.rerun()
         else:
-            selected_list = selected_rows.to_dict(orient='records')
-            st.info(f"已选择 {len(selected_list)} 个产品")
-
-            # 处理选中的产品
-            for selected in selected_list:
-                product_id = selected['id']
-                product = c.execute(
-                    "SELECT * FROM products WHERE id=?", (product_id,)
-                ).fetchone()
-
-                if product:
-                    product_name = f"{product[1]} (ID: {product[0]})"
-                    with st.expander(f"产品详情: {product_name}", expanded=False):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("产品名称", product[1])
-                            st.metric("重量(g)", product[5])
-                            st.metric(
-                                "尺寸(cm)",
-                                f"{product[6]}×{product[7]}×{product[8]}"
-                            )
-                            volume_weight = (
-                                product[6] * product[7] * product[8]
-                            ) / 6000
-                            st.metric("体积重量(kg)", f"{volume_weight:.2f}")
-
-                        with col2:
-                            st.metric("俄文名称", product[2] or "-")
-                            st.metric("含电池", "是" if product[11] else "否")
-                            st.metric("单价(元)", product[17])
-                            st.metric("发货方运费(元)", product[18])
-
-                        with col3:
-                            st.metric("产品类型", product[3] or "-")
-                            st.metric("有易燃液体", "是" if product[16] else "否")
-                            st.metric("代贴单费用(元)", product[19])
-                            st.metric("圆柱包装", "是" if product[9] else "否")
-
-                        # 显示电池信息
-                        if product[11]:  # has_battery
-                            st.subheader("电池信息")
-                            if product[12] > 0:  # battery_capacity_wh > 0
-                                st.metric("电池容量(Wh)", f"{product[12]:.2f}")
-                            else:
-                                st.metric("电池容量(mAh)", product[13])
-                                st.metric("电池电压(V)", f"{product[14]:.2f}")
-
-                        # 定价参数显示
-                        st.subheader("定价参数")
-                        col_params1, col_params2 = st.columns(2)
-                        with col_params1:
-                            st.metric("画线折扣率", f"{product[20]*100:.1f}%")
-                            st.metric("活动折扣率", f"{product[21]*100:.1f}%")
-                            st.metric("推广费用率", f"{product[22]*100:.1f}%")
-                            st.metric("最低利润率", f"{product[23]*100:.1f}%")
-
-                        with col_params2:
-                            st.metric("目标利润率", f"{product[24]*100:.1f}%")
-                            st.metric("佣金率", f"{product[25]*100:.1f}%")
-                            st.metric("提现费率", f"{product[26]*100:.1f}%")
-                            st.metric("支付手续费率", f"{product[27]*100:.1f}%")
-
-                        # 编辑按钮
-                        if st.button("编辑产品", key=f"edit_product_{product_id}"):
-                            st.session_state.edit_product_id = product_id
-                            st.rerun()
-
-                        # 删除按钮
-                        btn_key = f"delete_product_{product_id}"
-                        if st.button("删除产品", key=btn_key):
-                            try:
-                                c.execute(
-                                    "DELETE FROM products WHERE id=?",
-                                    (product_id,)
-                                )
-                                conn.commit()
-                                st.success("产品删除成功！")
-
-                                # 刷新产品缓存
-                                st.session_state.products_data = pd.read_sql(
-                                    "SELECT id, name, category, weight_g "
-                                    "FROM products",
-                                    conn
-                                )
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"删除产品失败: {str(e)}")
+            st.info("请勾选产品")
     else:
         st.info("暂无产品数据")
+
+
+# ---------- 编辑表单 ----------
+def edit_product_form():
+    conn, c = get_db()
+    st.subheader("编辑产品")
+    product_id = st.session_state.edit_product_id
+    product = c.execute(
+        "SELECT * FROM products WHERE id=?", (product_id,)).fetchone()
+    if not product:
+        st.error("产品不存在")
+        if st.button("返回列表"):
+            del st.session_state.edit_product_id
+            st.rerun()
+        return
+
+    # 用 product 的列索引对应表结构
+    (
+        _id, name, russian_name, category, model,
+        weight_g, length_cm, width_cm, height_cm,
+        is_cylinder, cylinder_diameter,
+        has_battery, battery_capacity_wh,
+        battery_capacity_mah, battery_voltage,
+        has_msds, has_flammable, unit_price,
+        shipping_fee, labeling_fee,
+        discount_rate, promotion_discount, promotion_cost_rate,
+        min_profit_margin, target_profit_margin,
+        commission_rate, withdrawal_fee_rate, payment_processing_fee
+    ) = product
+
+    # 表单布局（与添加产品完全一致）
+    col1, col2 = st.columns(2)
+    name = col1.text_input("产品名称*", value=name)
+    russian_name = col2.text_input("俄文名称", value=russian_name)
+    category = col1.text_input("产品类别", value=category)
+    model = col2.text_input("型号", value=model)
+
+    st.subheader("物理规格")
+    col1, col2, col3 = st.columns(3)
+    weight_g = col1.number_input("重量(g)*", min_value=0, value=weight_g)
+    length_cm = col2.number_input("长(cm)*", min_value=0, value=length_cm)
+    width_cm = col3.number_input("宽(cm)*", min_value=0, value=width_cm)
+    height_cm = st.number_input("高(cm)*", min_value=0, value=height_cm)
+
+    shape = st.radio(
+        "包装形状",
+        ["标准包装", "圆柱形包装"],
+        horizontal=True,
+        index=1 if is_cylinder else 0
+    )
+    is_cylinder = (shape == "圆柱形包装")
+    cylinder_diameter = 0.0
+    if is_cylinder:
+        cylinder_diameter = st.number_input(
+            "圆柱直径(cm)*", min_value=0.0, value=cylinder_diameter
+        )
+
+    has_battery = st.checkbox("含电池", value=bool(has_battery))
+    battery_capacity_wh = 0.0
+    battery_capacity_mah = 0
+    battery_voltage = 0.0
+    if has_battery:
+        choice = st.radio(
+            "电池容量填写方式",
+            ["填写 Wh（瓦时）", "填写 mAh + V"],
+            horizontal=True,
+            index=0 if battery_capacity_wh > 0 else 1
+        )
+        if choice == "填写 Wh（瓦时）":
+            battery_capacity_wh = st.number_input(
+                "电池容量(Wh)*", min_value=0.0, value=battery_capacity_wh
+            )
+        else:
+            col1, col2 = st.columns(2)
+            battery_capacity_mah = col1.number_input(
+                "电池容量(mAh)*", min_value=0, value=battery_capacity_mah
+            )
+            battery_voltage = col2.number_input(
+                "电池电压(V)*", min_value=0.0, value=battery_voltage
+            )
+
+    col1, col2 = st.columns(2)
+    has_msds = col1.checkbox("有MSDS文件", value=bool(has_msds))
+    has_flammable = col2.checkbox("有易燃液体", value=bool(has_flammable))
+    unit_price = col1.number_input("单价(元)*", min_value=0.0, value=unit_price)
+    shipping_fee = col2.number_input(
+        "发货方运费(元)*", min_value=0.0, value=shipping_fee)
+    labeling_fee = st.number_input(
+        "代贴单费用(元)*", min_value=0.0, value=labeling_fee)
+
+    st.subheader("定价参数")
+    col1, col2 = st.columns(2)
+    discount_rate = col1.slider("画线折扣率", 0.0, 1.0, discount_rate, 0.01)
+    promotion_discount = col2.slider(
+        "活动折扣率", 0.0, 1.0, promotion_discount, 0.01)
+    promotion_cost_rate = col1.slider(
+        "推广费用率", 0.0, 1.0, promotion_cost_rate, 0.01)
+    min_profit_margin = col2.slider("最低利润率", 0.0, 1.0, min_profit_margin, 0.01)
+    target_profit_margin = col1.slider(
+        "目标利润率", 0.0, 1.0, target_profit_margin, 0.01)
+    commission_rate = col2.slider("佣金率", 0.0, 1.0, commission_rate, 0.01)
+    withdrawal_fee_rate = col1.slider(
+        "提现费率", 0.0, 0.1, withdrawal_fee_rate, 0.001)
+    payment_processing_fee = col2.slider(
+        "支付手续费率", 0.0, 0.1, payment_processing_fee, 0.001
+    )
+
+    col1, col2 = st.columns(2)
+    if col1.button("保存修改"):
+        c.execute(
+            """UPDATE products SET
+                name=?, russian_name=?, category=?, model=?,
+                weight_g=?, length_cm=?, width_cm=?, height_cm=?,
+                is_cylinder=?, cylinder_diameter=?,
+                has_battery=?, battery_capacity_wh=?,
+                battery_capacity_mah=?, battery_voltage=?,
+                has_msds=?, has_flammable=?, unit_price=?,
+                shipping_fee=?, labeling_fee=?,
+                discount_rate=?, promotion_discount=?,
+                promotion_cost_rate=?, min_profit_margin=?,
+                target_profit_margin=?, commission_rate=?,
+                withdrawal_fee_rate=?, payment_processing_fee=?
+                WHERE id=?""",
+            (
+                name, russian_name, category, model,
+                weight_g, length_cm, width_cm, height_cm,
+                int(is_cylinder), cylinder_diameter,
+                int(has_battery), battery_capacity_wh,
+                battery_capacity_mah, battery_voltage,
+                int(has_msds), int(has_flammable), unit_price,
+                shipping_fee, labeling_fee,
+                discount_rate, promotion_discount,
+                promotion_cost_rate, min_profit_margin,
+                target_profit_margin, commission_rate,
+                withdrawal_fee_rate, payment_processing_fee,
+                product_id
+            )
+        )
+        conn.commit()
+        st.success("产品修改成功！")
+        del st.session_state.edit_product_id
+        st.session_state.products_data = pd.read_sql(
+            "SELECT id, name, category, weight_g FROM products", conn
+        )
+        st.rerun()
+
+    if col2.button("取消"):
+        del st.session_state.edit_product_id
+        st.rerun()
 
 
 # --------------------------
@@ -779,448 +826,188 @@ def get_logistics_data():
 
 
 def logistics_page():
-    st.title("物流规则配置")
+    conn, c = get_db()
 
-    # ---------- 内部专用 DataFrame 读取 ----------
-    def _get_logistics_df():
-        """只在 logistics_page 内部使用，返回 DataFrame"""
-        if '_logistics_df' not in st.session_state:
-            conn, c = get_db()
-            land_df = pd.read_sql(
-                "SELECT * FROM logistics "
-                "WHERE LOWER(TRIM(type)) = 'land'", conn
-            )
-            air_df = pd.read_sql(
-                "SELECT * FROM logistics WHERE LOWER(TRIM(type)) = 'air'", conn
-            )
-            all_df = pd.concat([land_df, air_df], ignore_index=True) \
-                if not land_df.empty and not air_df.empty else pd.DataFrame()
-            st.session_state._logistics_df = {
-                'land': land_df,
-                'air': air_df,
-                'all': all_df
-            }
-        return (
-            st.session_state._logistics_df['land'],
-            st.session_state._logistics_df['air'],
-            st.session_state._logistics_df['all']
-        )
+    # ---------- 如果正在编辑，则跳到编辑表单 ----------
+    if st.session_state.get("edit_logistic_id"):
+        edit_logistic_form()
+        return
 
-    # 使用新的内部函数
-    land_logistics, air_logistics, all_logistics = _get_logistics_df()
-
-    # 添加物流规则
-    if 'add_logistic_expanded' not in st.session_state:
-        st.session_state.add_logistic_expanded = False
-
-    # 添加物流规则
-    with st.expander(
-        "添加物流规则",
-        expanded=st.session_state.add_logistic_expanded
-    ):
-        with st.form("logistic_form", clear_on_submit=True):
+    # ---------- 添加物流规则 ----------
+    with st.expander("添加物流规则", expanded=False):
+        with st.form("logistic_form"):
             name = st.text_input("物流名称*")
             logistic_type = st.selectbox("物流类型*", ["陆运", "空运"])
             min_days = st.number_input("最快时效(天)*", min_value=1, value=10)
             max_days = st.number_input(
-                "最慢时效(天)*", min_value=min_days, value=30
-            )
-            price_limit = st.number_input(
-                "限价(元)", min_value=0.0, value=0.0)
+                "最慢时效(天)*", min_value=min_days, value=30)
+            price_limit = st.number_input("限价(元)", min_value=0.0, value=0.0)
 
-            # 费用结构配置
             st.subheader("费用结构")
             base_fee = st.number_input("基础费用(元)", min_value=0.0, value=0.0)
             weight_factor = st.number_input(
-                "每100g费用(元)", min_value=0.0, value=0.0
-            )
+                "每100g费用(元)", min_value=0.0, value=0.0)
             volume_factor = st.number_input(
-                "每10kg体积费用(元)", min_value=0.0, value=0.0,
-                help="体积重量 = 长×宽×高/6000 (kg)"
-            )
+                "每10kg体积费用(元)", min_value=0.0, value=0.0)
             battery_factor = st.number_input(
-                "电池附加费(元)", min_value=0.0, value=0.0
-            )
+                "电池附加费(元)", min_value=0.0, value=0.0)
 
-            # 限制条件
             st.subheader("限制条件")
             min_weight = st.number_input("最小重量(g)", min_value=0, value=0)
             max_weight = st.number_input("最大重量(g)", min_value=0, value=0)
-            max_size = st.number_input(
-                "最大尺寸(cm)", min_value=0, value=0,
-                help="长、宽、高的最大限制"
-            )
+            max_size = st.number_input("最大尺寸(cm)", min_value=0, value=0)
             max_volume_weight = st.number_input(
-                "最大体积重量(kg)", min_value=0.0, value=0.0
-            )
+                "最大体积重量(kg)", min_value=0.0, value=0.0)
 
-            # 特殊物品限制
             st.subheader("特殊物品限制")
             allow_battery = st.checkbox("允许运输含电池产品")
             allow_flammable = st.checkbox("允许运输易燃液体")
 
             submitted = st.form_submit_button("添加物流规则")
             if submitted:
-                if (not name or not min_days or
-                        not max_days):
-                    st.error("请填写所有必填字段（带*号）")
+                if not name or not min_days or not max_days:
+                    st.error("请填写所有必填字段")
                 else:
                     try:
-                        conn, c = get_db()
-                        # 将中文类型转换为英文类型
-                        type_mapping = {"陆运": "land", "空运": "air"}
-                        logistic_type_en = type_mapping.get(
-                            logistic_type, logistic_type.lower()
-                        )
-
-                        # 插入数据
-                        c.execute('''INSERT INTO logistics (
-                            name, type, min_days, max_days, price_limit,
-                            base_fee, weight_factor, volume_factor,
-                            battery_factor, min_weight, max_weight,
-                            max_size, max_volume_weight, allow_battery,
-                            allow_flammable
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?
-                        )
-                        ''', (
-                            name, logistic_type_en, min_days, max_days,
-                            price_limit, base_fee, weight_factor,
-                            volume_factor, battery_factor, min_weight,
-                            max_weight, max_size, max_volume_weight,
-                            1 if allow_battery else 0,
-                            1 if allow_flammable else 0
+                        type_en = {"陆运": "land", "空运": "air"}[logistic_type]
+                        c.execute("""INSERT INTO logistics (
+                            name,type,min_days,max_days,price_limit,
+                            base_fee,weight_factor,volume_factor,battery_factor,
+                            min_weight,max_weight,max_size,max_volume_weight,
+                            allow_battery,allow_flammable)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                            name, type_en, min_days, max_days, price_limit,
+                            base_fee, weight_factor,
+                            volume_factor, battery_factor,
+                            min_weight, max_weight,
+                            max_size, max_volume_weight,
+                            int(allow_battery), int(allow_flammable)
                         ))
-
                         conn.commit()
-                        st.success("✅ 物流规则添加成功！")
-
-                        # 重置表单状态
-                        st.session_state.add_logistic_expanded = False
-
-                        # 强制刷新页面并重置所有状态
-                        st.session_state.pop('logistics_data', None)
-                        st.session_state.pop('selected_land_logistic', None)
-                        st.session_state.pop('selected_air_logistic', None)
-
+                        st.success("物流规则添加成功！")
+                        st.session_state.pop("logistics_data", None)
                         st.rerun()
-
                     except Exception as e:
-                        st.error(f"❌ 添加物流规则失败: {str(e)}")
+                        st.error(f"添加失败: {str(e)}")
 
-    # 添加一个按钮用于手动打开添加表单
-    if not st.session_state.add_logistic_expanded:
-        if st.button("添加新物流规则", key="add_new_logistic_btn"):
-            st.session_state.add_logistic_expanded = True
-            st.rerun()
-
-    # 物流列表
+    # ---------- 物流列表（原生 table + 按钮） ----------
     st.subheader("物流列表")
-
-    # 添加刷新按钮
-    if st.button("刷新物流列表", key="refresh_logistics_list_top"):
-        st.info("🔄 手动刷新物流列表")
-        # 清除缓存
-        st.session_state.pop('logistics_data', None)
-        st.session_state.pop('selected_land_logistic', None)
-        st.session_state.pop('selected_air_logistic', None)
-        st.rerun()
+    land_df = pd.read_sql("SELECT * FROM logistics WHERE type='land'", conn)
+    air_df = pd.read_sql("SELECT * FROM logistics WHERE type='air'", conn)
 
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("陆运物流")
-        if not land_logistics.empty:
-            # 使用AgGrid展示数据
-            gb = GridOptionsBuilder.from_dataframe(land_logistics)
-            gb.configure_pagination(paginationPageSize=5)
-            gb.configure_side_bar()
-            gb.configure_selection('single', use_checkbox=True)
-            grid_options = gb.build()
-
-            grid_response = AgGrid(
-                land_logistics,
-                gridOptions=grid_options,
-                height=300,
-                width='100%',
-                data_return_mode='AS_INPUT',
-                update_mode='MODEL_CHANGED',
-                fit_columns_on_grid_load=True,
-                key='land_logistics_grid'  # 唯一键名
-            )
-
-            # 获取选中的行
-            selected = grid_response['selected_rows']
-            if selected is not None and not selected.empty:
-                st.session_state.selected_land_logistic = (
-                    selected.iloc[0]['id'])
-            elif 'selected_land_logistic' in st.session_state:
-                # 清除之前的选择
-                del st.session_state.selected_land_logistic
+        st.write("**陆运**")
+        if not land_df.empty:
+            for _, row in land_df.iterrows():
+                st.write(
+                    f"{row['id']} | {row['name']} "
+                    f"| {row['min_days']}-{row['max_days']}天")
+                if st.button("编辑", key=f"edit_land_{row['id']}"):
+                    st.session_state.edit_logistic_id = row['id']
+                    st.rerun()
+                if st.button("删除", key=f"del_land_{row['id']}"):
+                    c.execute("DELETE FROM logistics WHERE id=?", (row['id'],))
+                    conn.commit()
+                    st.success("已删除！")
+                    st.session_state.pop("logistics_data", None)
+                    st.rerun()
         else:
-            st.info("暂无陆运物流数据")
+            st.info("暂无陆运数据")
 
     with col2:
-        st.subheader("空运物流")
-        if not air_logistics.empty:
-            # 使用AgGrid展示数据
-            gb = GridOptionsBuilder.from_dataframe(air_logistics)
-            gb.configure_pagination(paginationPageSize=5)
-            gb.configure_side_bar()
-            gb.configure_selection('single', use_checkbox=True)
-            grid_options = gb.build()
-
-            grid_response = AgGrid(
-                air_logistics,
-                gridOptions=grid_options,
-                height=300,
-                width='100%',
-                data_return_mode='AS_INPUT',
-                update_mode='MODEL_CHANGED',
-                fit_columns_on_grid_load=True,
-                key='air_logistics_grid'  # 唯一键名
-            )
-
-            # 获取选中的行
-            selected = grid_response['selected_rows']
-            if selected is not None and not selected.empty:
-                st.session_state.selected_air_logistic = (
-                    selected.iloc[0]['id'])
-            elif 'selected_air_logistic' in st.session_state:
-                # 清除之前的选择
-                del st.session_state.selected_air_logistic
-        else:
-            st.info("暂无空运物流数据")
-
-    # 物流详情 - 独立显示陆运和空运
-    land_selected = st.session_state.get('selected_land_logistic')
-    air_selected = st.session_state.get('selected_air_logistic')
-
-    # 显示陆运详情
-    if land_selected:
-        # 从已存储的数据中获取物流详情
-        if not all_logistics.empty:
-            logistic_data = all_logistics[all_logistics['id'] == land_selected]
-
-            if not logistic_data.empty:
-                logistic_data = logistic_data.iloc[0].to_dict()
-                st.subheader(f"陆运规则详情 - {logistic_data['name']}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**ID:** {logistic_data['id']}")
-                    st.write(f"**名称:** {logistic_data['name']}")
-                    st.write(f"**类型:** {logistic_data['type']}")
-                    st.write(
-                        f"**时效:** {logistic_data['min_days']} - "
-                        f"{logistic_data['max_days']}天"
-                    )
-                    st.write(
-                        f"**限价:** {logistic_data['price_limit'] or '无限制'}"
-                    )
-                    st.write(f"**基础费用:** ¥{logistic_data['base_fee']}")
-                    st.write(
-                        f"**每100g费用:** ¥{logistic_data['weight_factor']}"
-                    )
-                    st.write(
-                        f"**每10kg体积费用:** ¥{logistic_data['volume_factor']}"
-                    )
-                    st.write(
-                        f"**电池附加费:** ¥{logistic_data['battery_factor']}"
-                    )
-
-                with col2:
-                    st.write(
-                        f"**最小重量:** "
-                        f"{logistic_data['min_weight'] or '无限制'}g"
-                    )
-                    st.write(
-                        f"**最大重量:** "
-                        f"{logistic_data['max_weight'] or '无限制'}g"
-                    )
-                    st.write(
-                        f"**最大尺寸:** {logistic_data['max_size'] or '无限制'}cm"
-                    )
-                    st.write(
-                        f"**最大体积重量:** "
-                        f"{logistic_data['max_volume_weight'] or '无限制'}kg"
-                    )
-                    # 提取键值到变量
-                    allow_battery = logistic_data['allow_battery']
-                    allow_flammable = logistic_data['allow_flammable']
-
-                    # 确定状态文本
-                    battery_status = '是' if allow_battery else '否'
-                    flammable_status = '是' if allow_flammable else '否'
-
-                    # 输出结果
-                    st.write(f"**允许电池:** {battery_status}")
-                    st.write(f"**允许易燃液体:** {flammable_status}")
-
-                # 编辑物流规则
-                if st.button(
-                    "编辑此陆运规则",
-                    key=f"edit_land_logistic_{land_selected}"
-                ):
-                    st.session_state.edit_logistic_id = land_selected
-                    st.session_state.edit_logistic_expanded = True
+        st.write("**空运**")
+        if not air_df.empty:
+            for _, row in air_df.iterrows():
+                st.write(
+                    f"{row['id']} | {row['name']} "
+                    f"| {row['min_days']}-{row['max_days']}天")
+                if st.button("编辑", key=f"edit_air_{row['id']}"):
+                    st.session_state.edit_logistic_id = row['id']
                     st.rerun()
-
-                # 删除物流规则
-                if st.button(
-                    "删除此陆运规则",
-                    key=f"delete_land_logistic_{land_selected}"
-                ):
-                    try:
-                        conn, c = get_db()
-                        c.execute(
-                            "DELETE FROM logistics WHERE id=?",
-                            (land_selected,)
-                        )
-                        conn.commit()
-                        st.success("✅ 物流规则删除成功！")
-
-                        # 清除session_state中的选择
-                        if 'selected_land_logistic' in st.session_state:
-                            del st.session_state.selected_land_logistic
-                        if (
-                            'edit_logistic_expanded' in st.session_state
-                            and st.session_state.edit_logistic_expanded
-                            and st.session_state.edit_logistic_id
-                                == land_selected
-                        ):
-                            del st.session_state.edit_logistic_id
-                        if 'edit_logistic_expanded' in st.session_state:
-                            del st.session_state.edit_logistic_expanded
-
-                        # 清除物流数据缓存
-                        st.session_state.pop('logistics_data', None)
-
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ 删除物流规则失败: {str(e)}")
-            else:
-                st.error(f"❌ 未找到ID为{land_selected}的陆运规则")
-                # 清除无效的选择
-                if 'selected_land_logistic' in st.session_state:
-                    del st.session_state.selected_land_logistic
-        else:
-            st.error("❌ 物流数据为空，请先添加物流规则")
-            if 'selected_land_logistic' in st.session_state:
-                del st.session_state.selected_land_logistic
-
-    # 显示空运详情
-    if air_selected:
-        # 从已存储的数据中获取物流详情
-        if not all_logistics.empty:
-            logistic_data = all_logistics[all_logistics['id'] == air_selected]
-
-            if not logistic_data.empty:
-                logistic_data = logistic_data.iloc[0].to_dict()
-                st.subheader(f"空运规则详情 - {logistic_data['name']}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**ID:** {logistic_data['id']}")
-                    st.write(f"**名称:** {logistic_data['name']}")
-                    st.write(f"**类型:** {logistic_data['type']}")
-                    st.write(
-                        f"**时效:** {logistic_data['min_days']} - "
-                        f"{logistic_data['max_days']}天"
-                    )
-                    st.write(
-                        f"**限价:** {logistic_data['price_limit'] or '无限制'}"
-                    )
-                    st.write(f"**基础费用:** ¥{logistic_data['base_fee']}")
-                    st.write(
-                        f"**每100g费用:** ¥{logistic_data['weight_factor']}"
-                    )
-                    st.write(
-                        f"**每10kg体积费用:** ¥{logistic_data['volume_factor']}"
-                    )
-                    st.write(
-                        f"**电池附加费:** ¥{logistic_data['battery_factor']}"
-                    )
-
-                with col2:
-                    st.write(
-                        f"**最小重量:** "
-                        f"{logistic_data['min_weight'] or '无限制'}g"
-                    )
-                    st.write(
-                        f"**最大重量:** "
-                        f"{logistic_data['max_weight'] or '无限制'}g"
-                    )
-                    st.write(
-                        f"**最大尺寸:** {logistic_data['max_size'] or '无限制'}cm"
-                    )
-                    st.write(
-                        f"**最大体积重量:** "
-                        f"{logistic_data['max_volume_weight'] or '无限制'}kg"
-                    )
-                    # 提取键值到变量
-                    allow_battery = logistic_data['allow_battery']
-                    allow_flammable = logistic_data['allow_flammable']
-
-                    # 确定状态文本
-                    battery_status = '是' if allow_battery else '否'
-                    flammable_status = '是' if allow_flammable else '否'
-
-                    # 输出结果
-                    st.write(f"**允许电池:** {battery_status}")
-                    st.write(f"**允许易燃液体:** {flammable_status}")
-
-                # 编辑物流规则
-                if st.button(
-                    "编辑此空运规则",
-                    key=f"edit_air_logistic_{air_selected}"
-                ):
-                    st.session_state.edit_logistic_id = air_selected
-                    st.session_state.edit_logistic_expanded = True
+                if st.button("删除", key=f"del_air_{row['id']}"):
+                    c.execute("DELETE FROM logistics WHERE id=?", (row['id'],))
+                    conn.commit()
+                    st.success("已删除！")
+                    st.session_state.pop("logistics_data", None)
                     st.rerun()
-
-                # 删除物流规则
-                if st.button(
-                    "删除此空运规则",
-                    key=f"delete_air_logistic_{air_selected}"
-                ):
-                    try:
-                        conn, c = get_db()
-                        c.execute(
-                            "DELETE FROM logistics WHERE id=?",
-                            (air_selected,)
-                        )
-                        conn.commit()
-                        st.success("✅ 物流规则删除成功！")
-
-                        # 清除session_state中的选择
-                        if 'selected_air_logistic' in st.session_state:
-                            del st.session_state.selected_air_logistic
-                        if (
-                            'edit_logistic_expanded' in st.session_state
-                            and st.session_state.edit_logistic_expanded
-                            and st.session_state.edit_logistic_id
-                                == air_selected
-                        ):
-                            del st.session_state.edit_logistic_id
-                        if 'edit_logistic_expanded' in st.session_state:
-                            del st.session_state.edit_logistic_expanded
-
-                        # 清除物流数据缓存
-                        st.session_state.pop('logistics_data', None)
-
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ 删除物流规则失败: {str(e)}")
-            else:
-                st.error(f"❌ 未找到ID为{air_selected}的空运规则")
-                # 清除无效的选择
-                if 'selected_air_logistic' in st.session_state:
-                    del st.session_state.selected_air_logistic
         else:
-            st.error("❌ 物流数据为空，请先添加物流规则")
-            if 'selected_air_logistic' in st.session_state:
-                del st.session_state.selected_air_logistic
+            st.info("暂无空运数据")
+
+
+# ================= 物流编辑表单（同级函数） =================
+def edit_logistic_form():
+    import streamlit as st
+    conn, c = get_db()
+    st.subheader("编辑物流规则")
+    row_id = st.session_state.edit_logistic_id
+    row = c.execute("SELECT * FROM logistics WHERE id=?", (row_id,)).fetchone()
+    if not row:
+        st.error("规则不存在")
+        if st.button("返回"):
+            del st.session_state.edit_logistic_id
+            st.rerun()
+        return
+
+    # 表单字段
+    with st.form("edit_logistic_form"):
+        name = st.text_input("物流名称", value=row["name"])
+        logistic_type = st.selectbox(
+            "物流类型", ["陆运", "空运"],
+            index=0 if row["type"] == "land" else 1
+        )
+        min_days = st.number_input(
+            "最快时效(天)", min_value=1, value=row["min_days"])
+        max_days = st.number_input(
+            "最慢时效(天)", min_value=min_days, value=row["max_days"])
+        price_limit = st.number_input(
+            "限价(元)", min_value=0.0, value=row["price_limit"])
+
+        base_fee = st.number_input(
+            "基础费用", min_value=0.0, value=row["base_fee"])
+        weight_factor = st.number_input(
+            "每100g费用", min_value=0.0, value=row["weight_factor"])
+        volume_factor = st.number_input(
+            "每10kg体积费用", min_value=0.0, value=row["volume_factor"])
+        battery_factor = st.number_input(
+            "电池附加费", min_value=0.0, value=row["battery_factor"])
+
+        min_weight = st.number_input(
+            "最小重量(g)", min_value=0, value=row["min_weight"])
+        max_weight = st.number_input(
+            "最大重量(g)", min_value=0, value=row["max_weight"])
+        max_size = st.number_input(
+            "最大尺寸(cm)", min_value=0, value=row["max_size"])
+        max_volume_weight = st.number_input(
+            "最大体积重量(kg)", min_value=0.0, value=row["max_volume_weight"])
+
+        allow_battery = st.checkbox("允许电池", value=bool(row["allow_battery"]))
+        allow_flammable = st.checkbox(
+            "允许易燃液体", value=bool(row["allow_flammable"]))
+
+        submitted = st.form_submit_button("保存修改")
+        if submitted:
+            type_en = {"陆运": "land", "空运": "air"}[logistic_type]
+            c.execute("""UPDATE logistics SET
+                name=?, type=?, min_days=?, max_days=?, price_limit=?,
+                base_fee=?, weight_factor=?, volume_factor=?, battery_factor=?,
+                min_weight=?, max_weight=?, max_size=?, max_volume_weight=?,
+                allow_battery=?, allow_flammable=? WHERE id=?""", (
+                name, type_en, min_days, max_days, price_limit,
+                base_fee, weight_factor, volume_factor, battery_factor,
+                min_weight, max_weight, max_size, max_volume_weight,
+                int(allow_battery), int(allow_flammable), row_id
+            ))
+            conn.commit()
+            st.success("修改成功！")
+            del st.session_state.edit_logistic_id
+            st.session_state.pop("logistics_data", None)
+            st.rerun()
+
+    # 取消按钮放在表单外
+    if st.button("取消"):
+        del st.session_state.edit_logistic_id
+        st.rerun()
 
 
 # --------------------------
@@ -1536,19 +1323,18 @@ def pricing_calculator_page():
 
 
 # --------------------------
-# 页面函数 - 用户管理
+# 页面函数 - 用户管理（原生控件版）
 # --------------------------
 def user_management_page():
     st.title("用户管理")
     conn, c = get_db()
 
-    # 添加用户
+    # ---------- 添加新用户 ----------
     with st.expander("添加新用户"):
         with st.form("user_form"):
             username = st.text_input("用户名*")
             password = st.text_input("密码*", type="password")
             role = st.selectbox("角色*", ["admin", "user"])
-
             submitted = st.form_submit_button("添加用户")
             if submitted:
                 if not username or not password:
@@ -1560,64 +1346,50 @@ def user_management_page():
                     else:
                         st.error("用户名已存在")
 
-    # 用户列表
+    # ---------- 用户列表 ----------
     st.subheader("用户列表")
     users = pd.read_sql("SELECT id, username, role FROM users", conn)
-    if not users.empty:
-        # 使用AgGrid展示数据
-        gb = GridOptionsBuilder.from_dataframe(users)
-        gb.configure_pagination(paginationPageSize=5)
-        gb.configure_side_bar()
-        gb.configure_selection('single', use_checkbox=True)
-        grid_options = gb.build()
 
-        grid_response = AgGrid(
-            users,
-            gridOptions=grid_options,
-            height=300,
-            width='100%',
-            data_return_mode='AS_INPUT',
-            update_mode='MODEL_CHANGED',
-            fit_columns_on_grid_load=True
-        )
+    if users.empty:
+        st.info("暂无用户数据")
+        return
 
-        # 获取选中的行
-        selected = grid_response.get('selected_rows', [])
-        if selected:
-            user_id = selected[0]['id']
-            c.execute(
-                "SELECT * FROM users WHERE id=?", (user_id,)
-            ).fetchone()
+    # 单选：用 radio 展示 id - username (role)
+    choice = st.radio(
+        "请选择一名用户",
+        options=users.itertuples(index=False),   # 返回 namedtuple
+        format_func=lambda x: f"{x.id} - {x.username} ({x.role})"
+    )
 
-            # 重置密码
-            with st.expander("重置密码"):
-                with st.form("reset_password_form"):
-                    new_password = st.text_input("新密码*", type="password")
-                    submitted = st.form_submit_button("重置密码")
-                    if submitted:
-                        if not new_password:
-                            st.error("请输入新密码")
-                        else:
-                            hashed_pwd = hashlib.sha256(
-                                new_password.encode()
-                            ).hexdigest()
-                            c.execute(
-                                "UPDATE users SET password=? WHERE id=?",
-                                (hashed_pwd, user_id)
-                            )
-                            conn.commit()
-                            st.success("密码重置成功！")
-                            st.rerun()
+    if choice:
+        user_id = choice.id
+        st.write("---")
+        st.write(f"**已选用户：** {choice.username}（{choice.role}）")
 
-            # 删除用户
-            if st.button("删除用户", key=f"delete_user_{user_id}"):
-                if user_id == st.session_state.user['id']:
-                    st.error("不能删除当前登录用户")
-                else:
-                    c.execute("DELETE FROM users WHERE id=?", (user_id,))
-                    conn.commit()
-                    st.success("用户删除成功！")
-                    st.rerun()
+        # 重置密码
+        with st.expander("重置密码"):
+            with st.form("reset_password_form"):
+                new_pwd = st.text_input("新密码*", type="password")
+                if st.form_submit_button("确认重置"):
+                    if not new_pwd:
+                        st.error("请输入新密码")
+                    else:
+                        hashed = hashlib.sha256(new_pwd.encode()).hexdigest()
+                        c.execute("UPDATE users SET password=? WHERE id=?",
+                                  (hashed, user_id))
+                        conn.commit()
+                        st.success("密码已更新！")
+                        st.rerun()
+
+        # 删除用户
+        if st.button("删除用户", key=f"del_{user_id}"):
+            if user_id == st.session_state.user['id']:
+                st.error("不能删除当前登录用户")
+            else:
+                c.execute("DELETE FROM users WHERE id=?", (user_id,))
+                conn.commit()
+                st.success("用户已删除！")
+                st.rerun()
     else:
         st.info("暂无用户数据")
 
