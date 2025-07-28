@@ -1,10 +1,13 @@
 import json
+import logging
 import os
+import requests
 import threading
 import time
-import requests
 from abc import ABC, abstractmethod
-import logging
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,27 +17,41 @@ class ExchangeRateProvider(ABC):
     def get_rate(self) -> float:
         pass
 
+# ---------- 中国银行官网实时抓取
+class BocProvider(ExchangeRateProvider):
+    """
+    使用 exchangerate-api.com 免费接口
+    直接返回 1 RUB → CNY 的实时汇率
+    """
+    def __init__(self):
+        self.url = "https://api.exchangerate-api.com/v4/latest/RUB"
+        self.session = requests.Session()
+        retry = Retry(total=2, backoff_factor=0.5,
+                      status_forcelist=[500, 502, 503, 504],
+                      allowed_methods=frozenset(['GET']))
+        self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
-# ---------- 实际实现：莫斯科交易所
-class MoexProvider(ExchangeRateProvider):
     def get_rate(self) -> float:
-        url = "https://iss.moex.com/iss/engines/currency/markets/selt/securities/CNYRUB_TOM/candles.json"
-        r = requests.get(url, params={"interval": 1, "limit": 1}, timeout=1)
-        r.raise_for_status()
-        price_rub = float(r.json()["candles"]["data"][0][6])
-        return 1 / price_rub
-
+        try:
+            r = self.session.get(self.url, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            # rates.CNY 即 1 RUB 兑多少 CNY
+            return float(data["rates"]["CNY"])
+        except Exception as e:
+            logging.warning("第三方汇率接口失败: %s", e)
+        raise ValueError("第三方接口未返回卢布汇率")
 
 # ---------- 兜底实现：固定值
 class FallbackProvider(ExchangeRateProvider):
-    def __init__(self, default: float = 0.09):
+    def __init__(self, default: float = 9.02):
         self.default = default
 
     def get_rate(self) -> float:
         return self.default
 
-
-# ---------- 双缓存服务
+# ---------- 双缓存服务（单例）
 class ExchangeRateService:
     _instance = None
     _lock = threading.Lock()
@@ -48,14 +65,13 @@ class ExchangeRateService:
         return cls._instance
 
     def _init(self):
-        self._provider = MoexProvider()
+        self._provider = BocProvider()
         self._fallback = FallbackProvider()
-        self._rate: float = 0.09
+        self._rate: float = 9.02
         self._last: float = 0
         self._load_fallback()
         self._start_async_refresh()
 
-    # ---------- 持久化兜底
     def _load_fallback(self):
         try:
             with open(self._fallback_file, "r", encoding="utf-8") as f:
@@ -75,7 +91,6 @@ class ExchangeRateService:
         except OSError:
             logging.exception("无法保存兜底汇率")
 
-    # ---------- 后台定时刷新
     def _start_async_refresh(self):
         if not getattr(self, "_refresher_started", False):
             threading.Thread(target=self._async_refresh, daemon=True).start()
@@ -93,10 +108,8 @@ class ExchangeRateService:
                 logging.exception("异步获取汇率失败，继续使用旧值")
             time.sleep(1800)  # 30 分钟
 
-    # ---------- 对外接口
     def get_exchange_rate(self) -> float:
         return self._rate
-
 
 # ---------- 全局单例
 def get_exchange_rate() -> float:
