@@ -1,1 +1,12 @@
 pricing_system.db
+moex_rate.json
+.gitignore
+rate_fallback.json
+.idea/logistics.iml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/dictionaries/project.xml
+.idea/inspectionProfiles/profiles_settings.xml
+__pycache__/exchange_service.cpython-313.pyc
+docs/context.md
