@@ -1954,12 +1954,11 @@ def pricing_calculator_page():
                         "利润率": f"{margin * 100:.2f}%",
                     }
                 )
+                min_margin = product_dict.get('min_profit_margin', 0.3) * 100
                 if margin < product_dict.get("min_profit_margin", 0.3):
                     st.warning(
-                        f"⚠️ {name}利润率低于 " f"{
-                            product_dict.get(
-                                'min_profit_margin',
-                                0.3) * 100:.1f}%")
+                        f"⚠️ {name}利润率低于 {min_margin:.1f}%"
+                    )
 
         if profit_rows:
             st.dataframe(pd.DataFrame(profit_rows))
