@@ -13,6 +13,21 @@ def pricing_calculator_page():
     conn, c = get_db()
     uid = current_user_id()
 
+    # ------------- 0. 筛选选项 -------------
+    col1, col2 = st.columns(2)
+    with col1:
+        priority = st.selectbox(
+            "优先级",
+            ["速度优先", "低价优先"],
+            help="速度优先：优先选择时效最快的物流；低价优先：优先选择价格最低的物流"
+        )
+    with col2:
+        delivery_filter = st.radio(
+            "送货方式筛选",
+            ["查看全部", "只看送货上门", "只看送到取货点"],
+            horizontal=True
+        )
+
     # ------------- 1. 选择产品 -------------
     products = pd.read_sql(
         "SELECT id, name FROM products WHERE user_id = ?", conn, params=(uid,)
@@ -44,12 +59,25 @@ def pricing_calculator_page():
         return
     product_dict = dict(product)
 
+    # 构建查询条件
+    delivery_conditions = []
+    if delivery_filter == "只看送货上门":
+        delivery_conditions.append("delivery_method = 'home_delivery'")
+    elif delivery_filter == "只看送到取货点":
+        delivery_conditions.append("delivery_method = 'pickup_point'")
+
+    delivery_where = ""
+    if delivery_conditions:
+        delivery_where = " AND " + " AND ".join(delivery_conditions)
+
     land_logistics = pd.read_sql(
-        "SELECT * FROM logistics WHERE type='land' AND user_id = ?",
+        f"SELECT * FROM logistics WHERE type='land' AND user_id = ?"
+        f"{delivery_where}",
         conn,
         params=(uid,)).to_dict(orient="records")
     air_logistics = pd.read_sql(
-        "SELECT * FROM logistics WHERE type='air' AND user_id = ?",
+        f"SELECT * FROM logistics WHERE type='air' AND user_id = ?"
+        f"{delivery_where}",
         conn,
         params=(uid,)).to_dict(orient="records")
 
@@ -63,7 +91,12 @@ def pricing_calculator_page():
         all_costs_debug,
         land_debug,
         air_debug,
-    ) = calculate_pricing(product_dict, land_logistics, air_logistics)
+    ) = calculate_pricing(
+        product_dict,
+        land_logistics,
+        air_logistics,
+        priority=priority
+    )
 
     # 写入缓存
     st.session_state[cache_key] = (
@@ -83,21 +116,35 @@ def pricing_calculator_page():
     if st.session_state.debug_mode:
         st.subheader("=== DEBUG 物流淘汰原因 ===")
         for log in land_logistics + air_logistics:
-            reason = _debug_filter_reason(log, product_dict)
-            if reason:
-                st.write(f"❌ {log['name']}（{log['type']}）被淘汰：{reason}")
-            else:
-                st.write(f"✅ {log['name']}（{log['type']}）可用")
+            if log is not None:
+                reason = _debug_filter_reason(log, product_dict)
+                if reason:
+                    st.write(
+                        f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                        f"被淘汰：{reason}"
+                    )
+                else:
+                    st.write(
+                        f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                        f"可用"
+                    )
 
     # ------------- 5. 后续逻辑保持不变 -------------
     # ---- 调试信息 ----
     st.subheader("=== DEBUG 物流淘汰原因 ===")
     for log in land_logistics + air_logistics:
-        reason = _debug_filter_reason(log, product_dict)
-        if reason:
-            st.write(f"❌ {log['name']}（{log['type']}）被淘汰：{reason}")
-        else:
-            st.write(f"✅ {log['name']}（{log['type']}）可用")
+        if log is not None:
+            reason = _debug_filter_reason(log, product_dict)
+            if reason:
+                st.write(
+                    f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                    f"被淘汰：{reason}"
+                )
+            else:
+                st.write(
+                    f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                    f"可用"
+                )
 
     # ---- 展示结果 ----
     col1, col2 = st.columns(2)
@@ -232,10 +279,14 @@ def pricing_calculator_page():
     with st.expander("所有物流运费及计算过程（调试）"):
         for item in all_costs_debug:
             log = item["logistic"]
-            st.write(f"物流：{log['name']}（{log['type']}），运费：{item['cost']}")
-            for line in item["debug"]:
-                st.write(line)
-            st.markdown("---")
+            if log is not None:
+                st.write(
+                    f"物流：{log.get('name', '未知')}（{log.get('type', '未知')}），"
+                    f"运费：{item['cost']}"
+                )
+                for line in item["debug"]:
+                    st.write(line)
+                st.markdown("---")
 
     # 展示最终定价的详细计算过程
     with st.expander("最终定价计算过程（调试）"):

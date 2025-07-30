@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import hashlib
+import sqlite3
 from db_utils import get_db
 
 
@@ -27,8 +28,10 @@ def user_management_page():
                         conn.commit()
                         st.success("用户添加成功！")
                         st.rerun()
-                    except Exception:
+                    except sqlite3.IntegrityError:
                         st.error("用户名已存在")
+                    except Exception as e:
+                        st.error(f"添加用户失败: {e}")
     st.subheader("用户列表")
     users = pd.read_sql("SELECT id, username, role FROM users", conn)
     if users.empty:

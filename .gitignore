@@ -16,3 +16,12 @@ __pycache__/ui_logistics.cpython-313.pyc
 __pycache__/ui_pricing.cpython-313.pyc
 __pycache__/ui_products.cpython-313.pyc
 __pycache__/ui_user.cpython-313.pyc
+logistics.db
+usd_rate_fallback.json
+__pycache__/db_utils.cpython-312.pyc
+__pycache__/exchange_service.cpython-312.pyc
+__pycache__/logic.cpython-312.pyc
+__pycache__/ui_logistics.cpython-312.pyc
+__pycache__/ui_pricing.cpython-312.pyc
+__pycache__/ui_products.cpython-312.pyc
+__pycache__/ui_user.cpython-312.pyc

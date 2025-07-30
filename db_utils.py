@@ -256,6 +256,10 @@ def _upgrade_logistics_new_fields():
         "max_cylinder_sum": "INTEGER DEFAULT 0",
         "max_cylinder_length": "INTEGER DEFAULT 0",
         "min_cylinder_length": "INTEGER DEFAULT 0",
+        "delivery_method": "TEXT DEFAULT 'unknown'",
+        "priority_group": "TEXT DEFAULT 'D'",
+        "price_limit_currency": "TEXT DEFAULT 'RUB'",
+        "price_min_currency": "TEXT DEFAULT 'RUB'",
     }
     for col, def_sql in new_cols.items():
         if col not in cols:
@@ -384,7 +388,11 @@ def init_db():
             first_weight_g INTEGER DEFAULT 0,
             continue_fee REAL DEFAULT 0,
             continue_unit TEXT DEFAULT '100',
-            volume_coefficient REAL DEFAULT 5000
+            volume_coefficient REAL DEFAULT 5000,
+            delivery_method TEXT DEFAULT 'unknown',
+            priority_group TEXT DEFAULT 'D',
+            price_limit_currency TEXT DEFAULT 'RUB',
+            price_min_currency TEXT DEFAULT 'RUB'
         )
         """
     )
@@ -398,3 +406,96 @@ def init_db():
     # 3. 初始管理员
     if not verify_user("admin", "admin123"):
         create_user("admin", "admin123", "admin")
+
+
+def calculate_and_update_priority_groups():
+    """计算并更新物流优先级分组"""
+    conn, c = get_db()
+
+    # 获取所有物流数据
+    logistics = c.execute(
+        "SELECT id, type, min_days, max_days FROM logistics"
+    ).fetchall()
+
+    # 按类型分组
+    land_logistics = [log for log in logistics if log['type'] == 'land']
+    air_logistics = [log for log in logistics if log['type'] == 'air']
+
+    def calculate_group_averages(logistics_list):
+        """计算物流组的平均值"""
+        if not logistics_list:
+            return 0, 0, 0
+
+        # 计算平均最快时效(A)
+        min_days_sum = sum(log['min_days'] for log in logistics_list)
+        avg_fastest = min_days_sum / len(logistics_list)
+
+        # 计算平均最慢时效(B)
+        max_days_sum = sum(log['max_days'] for log in logistics_list)
+        avg_slowest = max_days_sum / len(logistics_list)
+
+        # 计算每个物流的平均时效(C)的平均值(D)
+        avg_times = []
+        for log in logistics_list:
+            avg_time = (log['min_days'] + log['max_days']) / 2
+            avg_times.append(avg_time)
+        avg_overall = sum(avg_times) / len(avg_times)
+
+        return avg_fastest, avg_slowest, avg_overall
+
+    def assign_priority_group(log, avg_fastest, avg_slowest, avg_overall):
+        """为单个物流分配优先级组"""
+        min_days = log['min_days']
+        max_days = log['max_days']
+        avg_time = (min_days + max_days) / 2
+
+        # 计算有多少个值小于平均值
+        count_below_avg = 0
+        if min_days < avg_fastest:
+            count_below_avg += 1
+        if max_days < avg_slowest:
+            count_below_avg += 1
+        if avg_time < avg_overall:
+            count_below_avg += 1
+
+        # 根据数量分配组别
+        if count_below_avg == 3:
+            return 'A'
+        elif count_below_avg == 2:
+            return 'B'
+        elif count_below_avg == 1:
+            return 'C'
+        else:
+            return 'D'
+
+    # 计算陆运组平均值
+    land_avg_fastest, land_avg_slowest, land_avg_overall = (
+        calculate_group_averages(land_logistics)
+    )
+
+    # 计算空运组平均值
+    air_avg_fastest, air_avg_slowest, air_avg_overall = (
+        calculate_group_averages(air_logistics)
+    )
+
+    # 更新陆运物流的优先级组
+    for log in land_logistics:
+        group = assign_priority_group(
+            log, land_avg_fastest, land_avg_slowest, land_avg_overall
+        )
+        c.execute(
+            "UPDATE logistics SET priority_group = ? WHERE id = ?",
+            (group, log['id'])
+        )
+
+    # 更新空运物流的优先级组
+    for log in air_logistics:
+        group = assign_priority_group(
+            log, air_avg_fastest, air_avg_slowest, air_avg_overall
+        )
+        c.execute(
+            "UPDATE logistics SET priority_group = ? WHERE id = ?",
+            (group, log['id'])
+        )
+
+    conn.commit()
