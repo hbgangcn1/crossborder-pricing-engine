@@ -112,39 +112,7 @@ def pricing_calculator_page():
     )
     st.session_state[ts_key] = time.time()
 
-    # ------------- 调试信息 -------------
-    if st.session_state.debug_mode:
-        st.subheader("=== DEBUG 物流淘汰原因 ===")
-        for log in land_logistics + air_logistics:
-            if log is not None:
-                reason = _debug_filter_reason(log, product_dict)
-                if reason:
-                    st.write(
-                        f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                        f"被淘汰：{reason}"
-                    )
-                else:
-                    st.write(
-                        f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                        f"可用"
-                    )
-
     # ------------- 5. 后续逻辑保持不变 -------------
-    # ---- 调试信息 ----
-    st.subheader("=== DEBUG 物流淘汰原因 ===")
-    for log in land_logistics + air_logistics:
-        if log is not None:
-            reason = _debug_filter_reason(log, product_dict)
-            if reason:
-                st.write(
-                    f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                    f"被淘汰：{reason}"
-                )
-            else:
-                st.write(
-                    f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                    f"可用"
-                )
 
     # ---- 展示结果 ----
     col1, col2 = st.columns(2)
@@ -274,6 +242,22 @@ def pricing_calculator_page():
             st.dataframe(pd.DataFrame(profit_rows))
         else:
             st.info("暂无可用定价结果")
+
+    # 物流淘汰原因
+    with st.expander("物流淘汰原因"):
+        for log in land_logistics + air_logistics:
+            if log is not None:
+                reason = _debug_filter_reason(log, product_dict)
+                if reason:
+                    st.write(
+                        f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                        f"被淘汰：{reason}"
+                    )
+                else:
+                    st.write(
+                        f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
+                        f"可用"
+                    )
 
     # 展示所有物流的运费和详细计算过程
     with st.expander("所有物流运费及计算过程（调试）"):

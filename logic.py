@@ -15,14 +15,43 @@ def calculate_logistic_cost(logistic, product, debug=False):
     volume_coefficient = logistic.get("volume_coefficient", 5000)
     debug_info.append(f"体积重量模式: {volume_mode}, 系数: {volume_coefficient}")
     if volume_mode == "max_actual_vs_volume":
-        volume_weight = (length_cm * width_cm * height_cm) / volume_coefficient
+        volume_weight = (
+            length_cm * width_cm * height_cm
+        ) / volume_coefficient
         actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
-        calculated_weight = max(actual_weight, volume_weight) * 1000  # 转换回克
+        calculated_weight = (
+            max(actual_weight, volume_weight) * 1000
+        )  # 转换回克
         debug_info.append(
             f"实际重量: {actual_weight * 1000:.2f}g, "
             f"体积重量: {volume_weight * 1000:.2f}g, "
             f"计费重量: {calculated_weight:.2f}g"
         )
+    elif volume_mode == "longest_side":
+        longest_side_threshold = logistic.get("longest_side_threshold", 0)
+        longest_side = max(length_cm, width_cm, height_cm)
+        debug_info.append(
+            f"最长边: {longest_side}cm, 阈值: {longest_side_threshold}cm"
+        )
+        if longest_side > longest_side_threshold:
+            volume_weight = (
+                length_cm * width_cm * height_cm
+            ) / volume_coefficient
+            actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
+            calculated_weight = (
+                max(actual_weight, volume_weight) * 1000
+            )  # 转换回克
+            debug_info.append(
+                f"最长边超过阈值，启用体积重量计费: "
+                f"实际重量: {actual_weight * 1000:.2f}g, "
+                f"体积重量: {volume_weight * 1000:.2f}g, "
+                f"计费重量: {calculated_weight:.2f}g"
+            )
+        else:
+            calculated_weight = product.get("weight_g", 0)
+            debug_info.append(
+                f"最长边未超过阈值，使用实际重量: {calculated_weight}g"
+            )
     else:
         calculated_weight = product.get("weight_g", 0)
         debug_info.append(f"实际重量: {calculated_weight}g（未启用体积重量）")
@@ -35,89 +64,139 @@ def calculate_logistic_cost(logistic, product, debug=False):
         debug_info.append("不满足重量限制，返回 None")
         return (None, debug_info) if debug else None
     try:
-        sides = [
-            product.get("length_cm", 0),
-            product.get("width_cm", 0),
-            product.get("height_cm", 0),
-        ]
-        debug_info.append(f"三边: {sides}, 三边和: {sum(sides)}, 最长边: {max(sides)}")
-        # 判断是标准包装还是圆柱形包装
-        has_cylinder_limits = (
-            logistic.get("max_cylinder_sum", 0) > 0
-            or logistic.get("max_cylinder_length", 0) > 0
-            or logistic.get("min_cylinder_length", 0) > 0
-        )
-        if has_cylinder_limits:
-            # 圆柱形包装限制
+        # 获取产品包装形状
+        is_cylinder = product.get("is_cylinder", False)
+
+        if is_cylinder:
+            # 圆柱形包装产品
             cylinder_diameter = product.get("cylinder_diameter", 0)
-            cylinder_length = product.get("length_cm", 0)
-            cylinder_sum = 2 * cylinder_diameter + cylinder_length
-            debug_info.append(
-                f"圆柱形包装: 直径={cylinder_diameter}cm, "
-                f"长度={cylinder_length}cm, "
-                f"2倍直径+长度={cylinder_sum}cm"
+            cylinder_length = product.get("cylinder_length", 0)
+
+            # 首先检查物流是否有圆柱形包装限制
+            has_cylinder_limits = (
+                logistic.get("max_cylinder_sum", 0) > 0
+                or logistic.get("min_cylinder_sum", 0) > 0
+                or logistic.get("max_cylinder_length", 0) > 0
+                or logistic.get("min_cylinder_length", 0) > 0
             )
-            max_cylinder_sum = logistic.get("max_cylinder_sum", 0)
-            if 0 < max_cylinder_sum < cylinder_sum:
+
+            if has_cylinder_limits:
+                # 使用圆柱形包装限制进行匹配
+                cylinder_sum = 2 * cylinder_diameter + cylinder_length
                 debug_info.append(
-                    (
-                        "2倍直径与长度之和 "
-                        f"{cylinder_sum}cm 超限 {max_cylinder_sum}cm，"
-                        "返回 None"
-                    )
+                    f"圆柱形包装: 直径={cylinder_diameter}cm, "
+                    f"长度={cylinder_length}cm, "
+                    f"2倍直径+长度={cylinder_sum}cm"
                 )
-                return (None, debug_info) if debug else None
-            max_cylinder_length = logistic.get("max_cylinder_length", 0)
-            if 0 < max_cylinder_length < cylinder_length:
+                max_cylinder_sum = logistic.get("max_cylinder_sum", 0)
+                if 0 < max_cylinder_sum < cylinder_sum:
+                    debug_info.append(
+                        (
+                            "2倍直径与长度之和 "
+                            f"{cylinder_sum}cm 超限 {max_cylinder_sum}cm，"
+                            "返回 None"
+                        )
+                    )
+                    return (None, debug_info) if debug else None
+                min_cylinder_sum = logistic.get("min_cylinder_sum", 0)
+                if min_cylinder_sum > 0 and cylinder_sum < min_cylinder_sum:
+                    debug_info.append(
+                        (
+                            "2倍直径与长度之和 "
+                            f"{cylinder_sum}cm 低于下限 {min_cylinder_sum}cm，"
+                            "返回 None"
+                        )
+                    )
+                    return (None, debug_info) if debug else None
+                max_cylinder_length = logistic.get("max_cylinder_length", 0)
+                if 0 < max_cylinder_length < cylinder_length:
+                    debug_info.append(
+                        (
+                            "圆柱长度 "
+                            f"{cylinder_length}cm 超限 {max_cylinder_length}cm，"
+                            "返回 None"
+                        )
+                    )
+                    return (None, debug_info) if debug else None
+                min_cyl = logistic.get("min_cylinder_length", 0)
+                if min_cyl > 0 and cylinder_length < min_cyl:
+                    debug_info.append(
+                        (
+                            "圆柱长度 "
+                            f"{cylinder_length}cm 低于下限 {min_cyl}cm，"
+                            "返回 None"
+                        )
+                    )
+                    return (None, debug_info) if debug else None
+                # 圆柱形包装检查通过后，仍然需要定义sides用于后续标准包装限制检查
+                sides = [cylinder_diameter, cylinder_diameter, cylinder_length]
+            else:
+                # 物流没有圆柱形包装限制，使用标准包装限制
+                # 将圆柱形包装转换为标准包装进行匹配
+                # 圆柱直径相当于长和宽，圆柱长度相当于高
+                sides = [cylinder_diameter, cylinder_diameter, cylinder_length]
                 debug_info.append(
-                    (
-                        "圆柱长度 "
-                        f"{cylinder_length}cm 超限 {max_cylinder_length}cm，"
-                        "返回 None"
-                    )
+                    f"圆柱形包装转换为标准包装: 长={cylinder_diameter}cm, "
+                    f"宽={cylinder_diameter}cm, 高={cylinder_length}cm"
                 )
-                return (None, debug_info) if debug else None
-            min_cyl = logistic.get("min_cylinder_length", 0)
-            if min_cyl > 0 and cylinder_length < min_cyl:
-                debug_info.append(
-                    (
-                        "圆柱长度 "
-                        f"{cylinder_length}cm 低于下限 {min_cyl}cm，"
-                        "返回 None"
-                    )
-                )
-                return (None, debug_info) if debug else None
         else:
-            # 标准包装限制
-            if sum(sides) > logistic.get("max_sum_of_sides", 10**9):
-                debug_info.append("三边和超限，返回 None")
-                return (None, debug_info) if debug else None
-            if max(sides) > logistic.get("max_longest_side", 10**9):
-                debug_info.append("最长边超限，返回 None")
-                return (None, debug_info) if debug else None
-            # 第二边长上限检查
-            max_second_side = logistic.get("max_second_side", 0)
-            if max_second_side > 0:
-                sorted_sides = sorted(sides, reverse=True)
-                second_side = sorted_sides[1] if len(sorted_sides) > 1 else 0
+            # 标准包装产品
+            sides = [
+                product.get("length_cm", 0),
+                product.get("width_cm", 0),
+                product.get("height_cm", 0),
+            ]
+            debug_info.append(
+                f"标准包装: 长={sides[0]}cm, 宽={sides[1]}cm, 高={sides[2]}cm"
+            )
+
+        debug_info.append(f"三边: {sides}, 三边和: {sum(sides)}, 最长边: {max(sides)}")
+
+        # 标准包装限制检查
+        max_sum_of_sides = logistic.get("max_sum_of_sides", 10**9)
+        if max_sum_of_sides > 0 and sum(sides) > max_sum_of_sides:
+            debug_info.append("三边和超限，返回 None")
+            return (None, debug_info) if debug else None
+        if max(sides) > logistic.get("max_longest_side", 10**9):
+            debug_info.append("最长边超限，返回 None")
+            return (None, debug_info) if debug else None
+        # 第二边长上限检查
+        max_second_side = logistic.get("max_second_side", 0)
+        if max_second_side > 0:
+            sorted_sides = sorted(sides, reverse=True)
+            second_side = sorted_sides[1] if len(sorted_sides) > 1 else 0
+            debug_info.append(
+                f"第二边长: {second_side}cm, 限制: {max_second_side}cm"
+            )
+            if 0 < max_second_side < second_side:
                 debug_info.append(
-                    f"第二边长: {second_side}cm, 限制: {max_second_side}cm"
+                    f"第二边长 {second_side}cm 超限 {max_second_side}cm，返回 None"
                 )
-                if 0 < max_second_side < second_side:
-                    debug_info.append(
-                        f"第二边长 {second_side}cm 超限 {max_second_side}cm，返回 None"
-                    )
-                    return (None, debug_info) if debug else None
-            # 长度下限检查
-            min_len = logistic.get("min_length", 0)
-            if min_len > 0:
-                length = product.get("length_cm", 0)
-                debug_info.append(f"长度: {length}cm, 下限: {min_len}cm")
-                if length < min_len:
-                    debug_info.append(
-                        f"长度 {length}cm 低于下限 {min_len}cm，返回 None"
-                    )
-                    return (None, debug_info) if debug else None
+                return (None, debug_info) if debug else None
+        # 第二长边下限检查
+        min_second_side = logistic.get("min_second_side", 0)
+        if min_second_side > 0:
+            sorted_sides = sorted(sides, reverse=True)
+            second_side = sorted_sides[1] if len(sorted_sides) > 1 else 0
+            debug_info.append(
+                f"第二边长: {second_side}cm, 下限: {min_second_side}cm"
+            )
+            if second_side < min_second_side:
+                debug_info.append(
+                    f"第二边长 {second_side}cm 低于下限 "
+                    f"{min_second_side}cm，返回 None"
+                )
+                return (None, debug_info) if debug else None
+        # 最长边下限检查
+        min_len = logistic.get("min_length", 0)
+        if min_len > 0:
+            longest_side = max(sides)
+            debug_info.append(f"最长边: {longest_side}cm, 下限: {min_len}cm")
+            if longest_side < min_len:
+                debug_info.append(
+                    f"最长边 {longest_side}cm 低于下限 {min_len}cm，返回 None"
+                )
+                return (None, debug_info) if debug else None
         if product.get("has_battery") and not logistic.get("allow_battery"):
             debug_info.append("产品含电池但物流不允许，返回 None")
             return (None, debug_info) if debug else None
@@ -133,11 +212,24 @@ def calculate_logistic_cost(logistic, product, debug=False):
                 if wh == 0:
                     mah = product.get("battery_capacity_mah", 0)
                     v = product.get("battery_voltage", 0)
-                    wh = mah * v / 1000.0
-                debug_info.append(f"电池容量: {wh}Wh, 限制: {limit_wh}Wh")
-                if 0 < limit_wh < wh:
-                    debug_info.append("电池容量超限，返回 None")
-                    return (None, debug_info) if debug else None
+                    # 如果mAh和V都为0，跳过电池容量限制判断
+                    if mah <= 0 and v <= 0:
+                        debug_info.append("电池容量mAh和V都为0，跳过容量限制判断")
+                    else:
+                        wh = mah * v / 1000.0
+                        debug_info.append(f"电池容量: {wh}Wh, 限制: {limit_wh}Wh")
+                        if 0 < limit_wh < wh:
+                            debug_info.append("电池容量超限，返回 None")
+                            return (None, debug_info) if debug else None
+                else:
+                    # 如果填写了Wh但值为0，跳过电池容量限制判断
+                    if wh <= 0:
+                        debug_info.append("电池容量Wh为0，跳过容量限制判断")
+                    else:
+                        debug_info.append(f"电池容量: {wh}Wh, 限制: {limit_wh}Wh")
+                        if 0 < limit_wh < wh:
+                            debug_info.append("电池容量超限，返回 None")
+                            return (None, debug_info) if debug else None
             if logistic.get("require_msds") and not product.get("has_msds"):
                 debug_info.append("要求 MSDS 但产品未提供，返回 None")
                 return (None, debug_info) if debug else None
@@ -148,12 +240,12 @@ def calculate_logistic_cost(logistic, product, debug=False):
         else:
             return None
     # 重量计费
-    w = product.get("weight_g", 0)
+    w = calculated_weight
     fee_mode = logistic.get("fee_mode", "base_plus_continue")
     continue_unit = int(logistic.get("continue_unit", 100))
     continue_fee = logistic.get("continue_fee", 0)
     debug_info.append(
-        f"计费方式: {fee_mode}, 续重单位: {continue_unit}g, 续重费用: {continue_fee}"
+        f"计费方式: {fee_mode}, 续重单位: {continue_unit}g, 续重费用: {continue_fee:.5f}"
     )
     if fee_mode == "base_plus_continue":
         units = math.ceil(w / continue_unit)
@@ -185,7 +277,7 @@ def calculate_logistic_cost(logistic, product, debug=False):
             total_cny
             * (1 + product.get("target_profit_margin", 0))
             / (
-                (1 - product.get("promotion_discount", 0))
+                (1 - product.get("promotion_cost_rate", 0))
                 * (1 - product.get("commission_rate", 0))
                 * (1 - product.get("withdrawal_fee_rate", 0))
                 * (1 - product.get("payment_processing_fee", 0))
@@ -298,7 +390,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 (unit_price + labeling_fee + shipping_fee + 15 * rate + cost)
                 * (1 + product["target_profit_margin"])
                 / (
-                    (1 - product["promotion_discount"])
+                    (1 - product["promotion_cost_rate"])
                     * (1 - product["commission_rate"])
                     * (1 - product["withdrawal_fee_rate"])
                     * (1 - product["payment_processing_fee"])
@@ -332,18 +424,20 @@ def calculate_pricing(product, land_logistics, air_logistics,
             return None, None
 
         if priority_type == "速度优先":
-            # 按优先级组和平均时效排序
+            # 按优先级组和平均时效排序，相同时按价格排序
             def speed_key(candidate):
                 log = candidate[0]
+                cost = candidate[1]
                 priority_group = log.get("priority_group", "D")
                 min_days = log.get("min_days", 0)
                 max_days = log.get("max_days", 0)
                 avg_time = (min_days + max_days) / 2
-                # 优先级组：A=0, B=1, C=2, D=3
+                # 优先级组：A=0, B=1, C=2, D=3, E=4（时效为0的物流）
                 group_priority = (
-                    {"A": 0, "B": 1, "C": 2, "D": 3}.get(priority_group, 3)
+                    {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+                    .get(priority_group, 4)
                 )
-                return group_priority, avg_time
+                return group_priority, avg_time, cost
 
             return min(candidates, key=speed_key)
         else:  # 低价优先
@@ -356,7 +450,8 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 max_days = log.get("max_days", 0)
                 avg_time = (min_days + max_days) / 2
                 group_priority = (
-                    {"A": 0, "B": 1, "C": 2, "D": 3}.get(priority_group, 3)
+                    {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+                    .get(priority_group, 4)
                 )
                 return cost, group_priority, avg_time
 
@@ -375,7 +470,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
             + 15 * rate
         )
         denominator = (
-            (1 - product["promotion_discount"])
+            (1 - product["promotion_cost_rate"])
             * (1 - product["commission_rate"])
             * (1 - product["withdrawal_fee_rate"])
             * (1 - product["payment_processing_fee"])
@@ -396,7 +491,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
             # 添加价格限制调试信息（仅当有设置价格限制时显示）
             if price_limit_cny > 0:
                 currency_display = (
-                    "USD" if price_limit_currency == "美元" else "RUB"
+                    "USD" if price_limit_currency == "USD" else "RUB"
                 )
                 debug_list.append(
                     f"价格上限: {price_limit:.2f} {currency_display} "
@@ -404,7 +499,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 )
             if price_min_cny > 0:
                 currency_display = (
-                    "USD" if price_min_currency == "美元" else "RUB"
+                    "USD" if price_min_currency == "USD" else "RUB"
                 )
                 debug_list.append(
                     f"价格下限: {price_min:.2f} {currency_display} "
@@ -444,7 +539,38 @@ def calculate_pricing(product, land_logistics, air_logistics,
 def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
     """检查物流被淘汰的原因"""
     # ---------- 1. 重量 ----------
-    w = product.get("weight_g", 0)
+    # 计算体积重量
+    length_cm = product.get("length_cm", 0)
+    width_cm = product.get("width_cm", 0)
+    height_cm = product.get("height_cm", 0)
+    volume_mode = logistic.get("volume_mode", "none")
+    volume_coefficient = logistic.get("volume_coefficient", 5000)
+
+    if volume_mode == "max_actual_vs_volume":
+        volume_weight = (
+            length_cm * width_cm * height_cm
+        ) / volume_coefficient
+        actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
+        calculated_weight = (
+            max(actual_weight, volume_weight) * 1000
+        )  # 转换回克
+    elif volume_mode == "longest_side":
+        longest_side_threshold = logistic.get("longest_side_threshold", 0)
+        longest_side = max(length_cm, width_cm, height_cm)
+        if longest_side > longest_side_threshold:
+            volume_weight = (
+                length_cm * width_cm * height_cm
+            ) / volume_coefficient
+            actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
+            calculated_weight = (
+                max(actual_weight, volume_weight) * 1000
+            )  # 转换回克
+        else:
+            calculated_weight = product.get("weight_g", 0)
+    else:
+        calculated_weight = product.get("weight_g", 0)
+
+    w = calculated_weight
     min_w = logistic.get("min_weight", 0)
     max_w = logistic.get("max_weight", 10**9)
     if w < min_w:
@@ -452,52 +578,88 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
     if w > max_w:
         return f"重量 {w} g 高于上限 {max_w} g"
     # ---------- 2. 边长 ----------
-    sides = [
-        product.get("length_cm", 0),
-        product.get("width_cm", 0),
-        product.get("height_cm", 0),
-    ]
-    # 判断是标准包装还是圆柱形包装
-    has_cylinder_limits = (
-        logistic.get("max_cylinder_sum", 0) > 0
-        or logistic.get("max_cylinder_length", 0) > 0
-        or logistic.get("min_cylinder_length", 0) > 0
-    )
-    if has_cylinder_limits:
-        # 圆柱形包装限制
+    # 获取产品包装形状
+    is_cylinder = product.get("is_cylinder", False)
+
+    if is_cylinder:
+        # 圆柱形包装产品
         cylinder_diameter = product.get("cylinder_diameter", 0)
-        cylinder_length = product.get("length_cm", 0)
-        cylinder_sum = 2 * cylinder_diameter + cylinder_length
-        max_cylinder_sum = logistic.get("max_cylinder_sum", 0)
-        if 0 < max_cylinder_sum < cylinder_sum:
-            return f"2倍直径与长度之和 {cylinder_sum} cm 超过限制 {max_cylinder_sum} cm"
-        max_cylinder_length = logistic.get("max_cylinder_length", 0)
-        if 0 < max_cylinder_length < cylinder_length:
-            return f"圆柱长度 {cylinder_length} cm 超过限制 {max_cylinder_length} cm"
-        min_cyl = logistic.get("min_cylinder_length", 0)
-        if min_cyl > 0 and cylinder_length < min_cyl:
-            return f"圆柱长度 {cylinder_length} cm 低于下限 {min_cyl} cm"
+        cylinder_length = product.get("cylinder_length", 0)
+
+        # 首先检查物流是否有圆柱形包装限制
+        has_cylinder_limits = (
+            logistic.get("max_cylinder_sum", 0) > 0
+            or logistic.get("min_cylinder_sum", 0) > 0
+            or logistic.get("max_cylinder_length", 0) > 0
+            or logistic.get("min_cylinder_length", 0) > 0
+        )
+
+        if has_cylinder_limits:
+            # 使用圆柱形包装限制进行匹配
+            cylinder_sum = 2 * cylinder_diameter + cylinder_length
+            max_cylinder_sum = logistic.get("max_cylinder_sum", 0)
+            if 0 < max_cylinder_sum < cylinder_sum:
+                return (
+                    f"2倍直径与长度之和 {cylinder_sum} cm 超过限制 "
+                    f"{max_cylinder_sum} cm"
+                )
+            min_cylinder_sum = logistic.get("min_cylinder_sum", 0)
+            if min_cylinder_sum > 0 and cylinder_sum < min_cylinder_sum:
+                return (
+                    f"2倍直径与长度之和 {cylinder_sum} cm 低于下限 "
+                    f"{min_cylinder_sum} cm"
+                )
+            max_cylinder_length = logistic.get("max_cylinder_length", 0)
+            if 0 < max_cylinder_length < cylinder_length:
+                return (
+                    f"圆柱长度 {cylinder_length} cm 超过限制 "
+                    f"{max_cylinder_length} cm"
+                )
+            min_cyl = logistic.get("min_cylinder_length", 0)
+            if min_cyl > 0 and cylinder_length < min_cyl:
+                return f"圆柱长度 {cylinder_length} cm 低于下限 {min_cyl} cm"
+            # 圆柱形包装检查通过后，仍然需要定义sides用于后续标准包装限制检查
+            sides = [cylinder_diameter, cylinder_diameter, cylinder_length]
+        else:
+            # 物流没有圆柱形包装限制，使用标准包装限制
+            # 将圆柱形包装转换为标准包装进行匹配
+            # 圆柱直径相当于长和宽，圆柱长度相当于高
+            sides = [cylinder_diameter, cylinder_diameter, cylinder_length]
     else:
-        # 标准包装限制
-        max_sum = logistic.get("max_sum_of_sides", 10**9)
-        if sum(sides) > max_sum:
-            return f"三边之和 {sum(sides)} cm 超过限制 {max_sum} cm"
-        max_long = logistic.get("max_longest_side", 10**9)
-        if max(sides) > max_long:
-            return f"最长边 {max(sides)} cm 超过限制 {max_long} cm"
-        # 第二边长上限检查
-        max_second_side = logistic.get("max_second_side", 0)
-        if max_second_side > 0:
-            sorted_sides = sorted(sides, reverse=True)
-            second_side = sorted_sides[1] if len(sorted_sides) > 1 else 0
-            if 0 < max_second_side < second_side:
-                return f"第二边长 {second_side} cm 超过限制 {max_second_side} cm"
-        # 长度下限检查
-        min_len = logistic.get("min_length", 0)
-        if min_len > 0:
-            length = product.get("length_cm", 0)
-            if length < min_len:
-                return f"长度 {length} cm 低于下限 {min_len} cm"
+        # 标准包装产品
+        sides = [
+            product.get("length_cm", 0),
+            product.get("width_cm", 0),
+            product.get("height_cm", 0),
+        ]
+
+    # 标准包装限制检查
+    max_sum = logistic.get("max_sum_of_sides", 10**9)
+    if max_sum > 0 and sum(sides) > max_sum:
+        return f"三边之和 {sum(sides)} cm 超过限制 {max_sum} cm"
+    max_long = logistic.get("max_longest_side", 10**9)
+    if max(sides) > max_long:
+        return f"最长边 {max(sides)} cm 超过限制 {max_long} cm"
+    # 第二边长上限检查
+    max_second_side = logistic.get("max_second_side", 0)
+    if max_second_side > 0:
+        sorted_sides = sorted(sides, reverse=True)
+        second_side = sorted_sides[1] if len(sorted_sides) > 1 else 0
+        if 0 < max_second_side < second_side:
+            return f"第二边长 {second_side} cm 超过限制 {max_second_side} cm"
+    # 第二长边下限检查
+    min_second_side = logistic.get("min_second_side", 0)
+    if min_second_side > 0:
+        sorted_sides = sorted(sides, reverse=True)
+        second_side = sorted_sides[1] if len(sides) > 1 else 0
+        if second_side < min_second_side:
+            return f"第二边长 {second_side} cm 低于下限 {min_second_side} cm"
+    # 最长边下限检查
+    min_len = logistic.get("min_length", 0)
+    if min_len > 0:
+        longest_side = max(sides)
+        if longest_side < min_len:
+            return f"最长边 {longest_side} cm 低于下限 {min_len} cm"
     # 3. 特殊物品
     if product.get("has_battery") and not logistic.get("allow_battery"):
         return "产品含电池但物流不允许电池"
@@ -511,9 +673,20 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
             if wh == 0:
                 mah = product.get("battery_capacity_mah", 0)
                 v = product.get("battery_voltage", 0)
-                wh = mah * v / 1000.0
-            if 0 < limit_wh < wh:
-                return f"电池容量 {wh} Wh 超过物流限制 {limit_wh} Wh"
+                # 如果mAh和V都为0，跳过电池容量限制判断
+                if mah <= 0 and v <= 0:
+                    pass  # 跳过电池容量限制判断
+                else:
+                    wh = mah * v / 1000.0
+                    if 0 < limit_wh < wh:
+                        return f"电池容量 {wh} Wh 超过物流限制 {limit_wh} Wh"
+            else:
+                # 如果填写了Wh但值为0，跳过电池容量限制判断
+                if wh <= 0:
+                    pass  # 跳过电池容量限制判断
+                else:
+                    if 0 < limit_wh < wh:
+                        return f"电池容量 {wh} Wh 超过物流限制 {limit_wh} Wh"
         if logistic.get("require_msds") and not product.get("has_msds"):
             return "物流要求 MSDS 但产品未提供"
     # 5. 限价（人民币→卢布）
@@ -523,7 +696,7 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
         labeling_fee = float(product.get("labeling_fee", 0))
         shipping_fee = float(product.get("shipping_fee", 0))
         # 先计算运费（复用与正式计算完全一致的公式）
-        w = product.get("weight_g", 0)
+        # 使用上面已经计算好的重量 w
         fee_mode = logistic.get("fee_mode", "base_plus_continue")
         continue_unit = int(logistic.get("continue_unit", 100))
         if fee_mode == "base_plus_continue":
@@ -544,7 +717,7 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
         total_cny = unit_price + labeling_fee + shipping_fee + 15 * rate + cost
         # 估算人民币售价
         denominator = (
-            (1 - product.get("promotion_discount", 0))
+            (1 - product.get("promotion_cost_rate", 0))
             * (1 - product.get("commission_rate", 0))
             * (1 - product.get("withdrawal_fee_rate", 0))
             * (1 - product.get("payment_processing_fee", 0))

@@ -23,14 +23,14 @@ def logistics_page():
         name = st.text_input("物流名称*", key="add_name")
         logistic_type = st.selectbox("物流类型*", ["陆运", "空运"], key="add_type")
         min_days = st.number_input(
-            "最快时效(天)*",
-            min_value=1,
+            "最快时效(天)，未知就填0",
+            min_value=0,
             value=10,
             key="add_min_days"
         )
         max_days = st.number_input(
-            "最慢时效(天)*",
-            min_value=min_days,
+            "最慢时效(天)，未知就填0",
+            min_value=0,
             value=30,
             key="add_max_days"
         )
@@ -57,6 +57,7 @@ def logistics_page():
             continue_fee = st.number_input(
                 "续重费用(元 / 单位)",
                 value=0.0,
+                format="%.5f",
                 key="add_continue_fee"
             )
             continue_unit = st.selectbox(
@@ -80,6 +81,7 @@ def logistics_page():
             continue_fee = st.number_input(
                 "续重费用(元 / 单位)",
                 value=0.0,
+                format="%.5f",
                 key="add_continue_fee_alt"
             )
             continue_unit = st.selectbox(
@@ -113,17 +115,23 @@ def logistics_page():
             value=0,
             key="add_max_longest_side"
         )
+        min_length = st.number_input(
+            "最长边下限(cm)",
+            value=0,
+            help="0表示不限制",
+            key="add_min_length"
+        )
         max_second_side = st.number_input(
             "第二边长上限(cm)",
             value=0,
             help="0表示不限制",
             key="add_max_second_side"
         )
-        min_length = st.number_input(
-            "长度下限(cm)",
+        min_second_side = st.number_input(
+            "第二长边下限(cm)",
             value=0,
             help="0表示不限制",
-            key="add_min_length"
+            key="add_min_second_side"
         )
 
         st.divider()
@@ -134,6 +142,12 @@ def logistics_page():
             "2倍直径与长度之和限制(cm)",
             value=0,
             key="add_max_cylinder_sum"
+        )
+        min_cylinder_sum = st.number_input(
+            "2倍直径与长度之和下限(cm)",
+            value=0,
+            help="0表示不限制",
+            key="add_min_cylinder_sum"
         )
         max_cylinder_length = st.number_input(
             "长度限制(cm)",
@@ -248,8 +262,13 @@ def logistics_page():
             "添加物流规则",
             key="add_logistic_button"
         ):
-            if not name or not min_days or not max_days:
-                st.error("请填写所有必填字段")
+            # 检查必填字段
+            missing_fields = []
+            if not name:
+                missing_fields.append("物流名称")
+
+            if missing_fields:
+                st.error(f"请填写以下必填字段：{', '.join(missing_fields)}")
             else:
                 # 货币转换
                 rub_rate = ExchangeRateService().get_exchange_rate()
@@ -292,8 +311,9 @@ def logistics_page():
                     "price_limit, price_limit_rub, price_min_rub, "
                     "base_fee, min_weight, max_weight, "
                     "max_sum_of_sides, max_longest_side, max_second_side, "
-                    "min_length, max_cylinder_sum, max_cylinder_length, "
-                    "min_cylinder_length, volume_mode, "
+                    "min_second_side, min_length, max_cylinder_sum, "
+                    "min_cylinder_sum, "
+                    "max_cylinder_length, min_cylinder_length, volume_mode, "
                     "longest_side_threshold, volume_coefficient, "
                     "allow_battery, allow_flammable, "
                     "battery_capacity_limit_wh, require_msds, fee_mode, "
@@ -303,7 +323,7 @@ def logistics_page():
                     "VALUES (?,?,?,?,?,?,?, "
                     "?,?,?,?,?,?,?,?, "
                     "?,?,?,?,?,?,?,?,?, "
-                    "?,?,?,?,?,?,?,?,?,?,?,?)"
+                    "?,?,?,?,?,?,?,?,?,?,?)"
                 )
                 c.execute(
                     insert_sql,
@@ -322,8 +342,10 @@ def logistics_page():
                         max_sum_of_sides,
                         max_longest_side,
                         max_second_side,
+                        min_second_side,
                         min_length,
                         max_cylinder_sum,
+                        min_cylinder_sum,
                         max_cylinder_length,
                         min_cylinder_length,
                         volume_mode,
@@ -347,8 +369,8 @@ def logistics_page():
                         continue_fee,
                         continue_unit_val,
                         delivery_method_map[delivery_method],
-                        price_currency,
-                        price_currency,
+                        "USD" if price_currency == "美元" else "RUB",
+                        "USD" if price_currency == "美元" else "RUB",
                     ),
                 )
                 conn.commit()
@@ -469,12 +491,14 @@ def edit_logistic_form():
         key=f"type_{lid}",
     )
     min_days = st.number_input(
-        "最快时效(天)",
+        "最快时效(天)，未知就填0",
+        min_value=0,
         value=vals["min_days"],
         key=f"min_days_{lid}"
     )
     max_days = st.number_input(
-        "最慢时效(天)",
+        "最慢时效(天)，未知就填0",
+        min_value=0,
         value=vals["max_days"],
         key=f"max_days_{lid}"
     )
@@ -505,6 +529,7 @@ def edit_logistic_form():
         continue_fee = st.number_input(
             "续重费用(元 / 单位)",
             value=vals.get("continue_fee", 0.0),
+            format="%.5f",
             key=f"continue_fee_{lid}",
         )
         continue_unit = st.selectbox(
@@ -529,6 +554,7 @@ def edit_logistic_form():
         continue_fee = st.number_input(
             "续重费用(元 / 单位)",
             value=vals.get("continue_fee", 0.0),
+            format="%.5f",
             key=f"continue_fee2_{lid}",
         )
         continue_unit = st.selectbox(
@@ -564,17 +590,23 @@ def edit_logistic_form():
         value=vals.get("max_longest_side", 0),
         key=f"max_longest_side_{lid}",
     )
+    min_length = st.number_input(
+        "最长边下限(cm)",
+        value=vals.get("min_length", 0),
+        help="0表示不限制",
+        key=f"min_length_{lid}",
+    )
     max_second_side = st.number_input(
         "第二边长上限(cm)",
         value=vals.get("max_second_side", 0),
         help="0表示不限制",
         key=f"max_second_side_{lid}",
     )
-    min_length = st.number_input(
-        "长度下限(cm)",
-        value=vals.get("min_length", 0),
+    min_second_side = st.number_input(
+        "第二长边下限(cm)",
+        value=vals.get("min_second_side", 0),
         help="0表示不限制",
-        key=f"min_length_{lid}",
+        key=f"min_second_side_{lid}",
     )
 
     st.divider()
@@ -585,6 +617,12 @@ def edit_logistic_form():
         "2倍直径与长度之和限制(cm)",
         value=vals.get("max_cylinder_sum", 0),
         key=f"max_cylinder_sum_{lid}",
+    )
+    min_cylinder_sum = st.number_input(
+        "2倍直径与长度之和下限(cm)",
+        value=vals.get("min_cylinder_sum", 0),
+        help="0表示不限制",
+        key=f"min_cylinder_sum_{lid}",
     )
     max_cylinder_length = st.number_input(
         "长度限制(cm)",
@@ -763,11 +801,11 @@ def edit_logistic_form():
                 "price_limit=?, price_limit_rub=?, price_min_rub=?, "
                 "base_fee=?, min_weight=?, max_weight=?, "
                 "max_sum_of_sides=?, max_longest_side=?, "
-                "max_second_side=?, min_length=?, "
-                "max_cylinder_sum=?, max_cylinder_length=?, "
-                "min_cylinder_length=?, volume_mode=?, "
-                "longest_side_threshold=?, volume_coefficient=?, "
-                "allow_battery=?, allow_flammable=?, "
+                "max_second_side=?, min_second_side=?, min_length=?, "
+                "max_cylinder_sum=?, min_cylinder_sum=?, "
+                "max_cylinder_length=?, min_cylinder_length=?, "
+                "volume_mode=?, longest_side_threshold=?, "
+                "volume_coefficient=?, allow_battery=?, allow_flammable=?, "
                 "battery_capacity_limit_wh=?, require_msds=?, "
                 "fee_mode=?, first_fee=?, first_weight_g=?, "
                 "continue_fee=?, continue_unit=?, "
@@ -791,8 +829,10 @@ def edit_logistic_form():
                     max_sum_of_sides,
                     max_longest_side,
                     max_second_side,
+                    min_second_side,
                     min_length,
                     max_cylinder_sum,
+                    min_cylinder_sum,
                     max_cylinder_length,
                     min_cylinder_length,
                     volume_mode,
@@ -816,8 +856,8 @@ def edit_logistic_form():
                     continue_fee,
                     continue_unit_val,
                     delivery_method_map[delivery_method],
-                    price_currency,
-                    price_currency,
+                    "USD" if price_currency == "美元" else "RUB",
+                    "USD" if price_currency == "美元" else "RUB",
                     lid,
                     uid,
                 ),

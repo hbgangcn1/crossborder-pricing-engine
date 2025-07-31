@@ -31,18 +31,34 @@ def products_page():
         )
         st.subheader("物理规格")
         weight_g = st.number_input("重量(g)*", min_value=0, value=0)
-        col1, col2, col3 = st.columns(3)
-        length_cm = col1.number_input("长(cm)*", min_value=0, value=0)
-        width_cm = col2.number_input("宽(cm)*", min_value=0, value=0)
-        height_cm = col3.number_input("高(cm)*", min_value=0, value=0)
         shape = st.radio("包装形状", ["标准包装", "圆柱形包装"], horizontal=True)
         is_cylinder = shape == "圆柱形包装"
+
+        # 初始化圆柱形包装变量（用于兼容性）
         cylinder_diameter = 0.0
-        if is_cylinder:
-            cylinder_diameter = st.number_input(
+        cylinder_length = 0.0
+
+        # 标准包装尺寸
+        if not is_cylinder:
+            col1, col2, col3 = st.columns(3)
+            length_cm = col1.number_input("长(cm)*", min_value=0, value=0)
+            width_cm = col2.number_input("宽(cm)*", min_value=0, value=0)
+            height_cm = col3.number_input("高(cm)*", min_value=0, value=0)
+        else:
+            # 圆柱形包装尺寸
+            col1, col2 = st.columns(2)
+            cylinder_diameter = col1.number_input(
                 "圆柱直径(cm)*", min_value=0.0, value=0.0
             )
+            cylinder_length = col2.number_input(
+                "圆柱长度(cm)*", min_value=0.0, value=0.0
+            )
+            # 为圆柱形包装设置默认的长宽高值（用于兼容性）
+            length_cm = cylinder_diameter
+            width_cm = cylinder_diameter
+            height_cm = cylinder_length
         has_battery = st.checkbox("含电池")
+        choice = None
         battery_capacity_wh = 0.0
         battery_capacity_mah = 0
         battery_voltage = 0.0
@@ -62,54 +78,116 @@ def products_page():
                 battery_voltage = col2.number_input(
                     "电池电压(V)*", min_value=0.0, value=0.0
                 )
+                # 电池容量验证警告
+                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                    st.warning("请填写电池电压(V)")
+                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                    st.warning("请填写电池容量(mAh)")
         col1, col2 = st.columns(2)
         has_msds = col1.checkbox("有MSDS文件")
         has_flammable = col2.checkbox("有易燃液体")
-        shipping_fee = col1.number_input("发货方运费(元)*", min_value=0.0, value=0.0)
-        labeling_fee = st.number_input("代贴单费用(元)*", min_value=0.0, value=0.0)
+        shipping_fee = col1.number_input("发货方运费(元)", min_value=0.0, value=0.0)
+        labeling_fee = st.number_input("代贴单费用(元)", min_value=0.0, value=0.0)
         st.subheader("定价参数")
         col1, col2 = st.columns(2)
-        col2.slider("活动折扣率", 0.0, 1.0, 0.05, 0.01)
-        col1.slider("推广费用率", 0.0, 1.0, 0.115, 0.01)
-        col1.slider("目标利润率", 0.0, 1.0, 0.5, 0.01)
-        col2.slider("佣金率", 0.0, 1.0, 0.175, 0.01)
-        col1.slider("提现费率", 0.0, 0.1, 0.01, 0.001)
-        col2.slider("支付手续费率", 0.0, 0.1, 0.013, 0.001)
+        promotion_discount = col2.slider(
+            "活动折扣率", 0.0, 100.0, 5.0, 1.0, format="%.1f%%"
+        ) / 100.0
+        promotion_cost_rate = col1.slider(
+            "推广费用率", 0.0, 100.0, 11.5, 1.0, format="%.1f%%"
+        ) / 100.0
+        target_profit_margin = col1.slider(
+            "目标利润率", 0.0, 100.0, 50.0, 1.0, format="%.1f%%"
+        ) / 100.0
+        commission_rate = col2.slider(
+            "佣金率", 0.0, 100.0, 17.5, 1.0, format="%.1f%%"
+        ) / 100.0
+        withdrawal_fee_rate = col1.slider(
+            "提现费率", 0.0, 100.0, 1.0, 1.0, format="%.1f%%"
+        ) / 100.0
+        payment_processing_fee = col2.slider(
+            "支付手续费率", 0.0, 100.0, 1.3, 1.0, format="%.1f%%"
+        ) / 100.0
         if st.button("添加产品"):
             required = [
                 name,
                 weight_g,
-                length_cm,
-                width_cm,
-                height_cm,
                 unit_price]
-            if is_cylinder and cylinder_diameter <= 0:
-                required.append(None)
-            if (
-                has_battery
-                and choice == "填写 Wh（瓦时）"
-                and battery_capacity_wh <= 0
-            ):
-                required.append(None)
-            if (
-                has_battery
-                and choice == "填写 mAh + V"
-                and (battery_capacity_mah <= 0 or battery_voltage <= 0)
-            ):
-                required.append(None)
-            if any(v is None or (isinstance(v, (int, float)) and v <= 0)
-                    for v in required):
-                st.error("请填写所有必填字段")
+            if not is_cylinder:
+                required.extend([length_cm, width_cm, height_cm])
+            else:
+                required.extend([cylinder_diameter, cylinder_length])
+            # 电池容量验证逻辑
+            if has_battery:
+                if choice == "填写 Wh（瓦时）":
+                    if battery_capacity_wh <= 0:
+                        # 如果填写了Wh但值为0，跳过电池容量限制判断
+                        pass
+                elif choice == "填写 mAh + V":
+                    if battery_capacity_mah > 0 and battery_voltage <= 0:
+                        required.append(None)
+                    elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                        required.append(None)
+                    elif battery_capacity_mah <= 0 and battery_voltage <= 0:
+                        # 如果都填了0，跳过电池容量限制判断
+                        pass
+                    else:
+                        # 正常情况，不需要额外验证
+                        pass
+            # 检查必填字段
+            missing_fields = []
+            if not name:
+                missing_fields.append("产品名称")
+            if weight_g <= 0:
+                missing_fields.append("重量")
+            if unit_price <= 0:
+                missing_fields.append("进货单价")
+            if not is_cylinder:
+                if length_cm <= 0:
+                    missing_fields.append("长度")
+                if width_cm <= 0:
+                    missing_fields.append("宽度")
+                if height_cm <= 0:
+                    missing_fields.append("高度")
+            else:
+                if cylinder_diameter <= 0:
+                    missing_fields.append("圆柱直径")
+                if cylinder_length <= 0:
+                    missing_fields.append("圆柱长度")
+            # 电池容量验证逻辑
+            if has_battery:
+                if choice == "填写 Wh（瓦时）":
+                    if battery_capacity_wh <= 0:
+                        # 如果填写了Wh但值为0，跳过电池容量限制判断
+                        pass
+                elif choice == "填写 mAh + V":
+                    if battery_capacity_mah > 0 and battery_voltage <= 0:
+                        missing_fields.append("电池电压(V)")
+                    elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                        missing_fields.append("电池容量(mAh)")
+                    elif battery_capacity_mah <= 0 and battery_voltage <= 0:
+                        # 如果都填了0，跳过电池容量限制判断
+                        pass
+                    else:
+                        # 正常情况，不需要额外验证
+                        pass
+
+            if missing_fields:
+                st.error(f"请填写以下必填字段：{', '.join(missing_fields)}")
             else:
                 c.execute(
                     "INSERT INTO products ("
                     "user_id, name, russian_name, category, model, "
                     "weight_g, length_cm, width_cm, height_cm, "
-                    "is_cylinder, cylinder_diameter, "
+                    "is_cylinder, cylinder_diameter, cylinder_length, "
                     "has_battery, battery_capacity_wh, battery_capacity_mah, "
                     "battery_voltage, has_msds, has_flammable, "
-                    "unit_price, shipping_fee, labeling_fee) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "unit_price, shipping_fee, labeling_fee, "
+                    "promotion_discount, promotion_cost_rate, "
+                    "target_profit_margin, commission_rate, "
+                    "withdrawal_fee_rate, payment_processing_fee) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
+                    "?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         uid,
                         name,
@@ -122,6 +200,7 @@ def products_page():
                         height_cm,
                         int(is_cylinder),
                         cylinder_diameter,
+                        cylinder_length if is_cylinder else 0.0,
                         int(has_battery),
                         battery_capacity_wh,
                         battery_capacity_mah,
@@ -131,6 +210,12 @@ def products_page():
                         unit_price,
                         shipping_fee,
                         labeling_fee,
+                        promotion_discount,
+                        promotion_cost_rate,
+                        target_profit_margin,
+                        commission_rate,
+                        withdrawal_fee_rate,
+                        payment_processing_fee,
                     ),
                 )
                 conn.commit()
@@ -204,12 +289,6 @@ def edit_product_form():
         "进货单价（元）*", min_value=0.0, value=float(vals["unit_price"]), step=0.01
     )
     weight_g = st.number_input("重量(g)*", min_value=0, value=vals["weight_g"])
-    col1, col2, col3 = st.columns(3)
-    length_cm = col1.number_input(
-        "长(cm)*", min_value=0, value=vals["length_cm"])
-    width_cm = col2.number_input("宽(cm)*", min_value=0, value=vals["width_cm"])
-    height_cm = col3.number_input(
-        "高(cm)*", min_value=0, value=vals["height_cm"])
     shape = st.radio(
         "包装形状",
         ["标准包装", "圆柱形包装"],
@@ -217,11 +296,36 @@ def edit_product_form():
         horizontal=True,
     )
     is_cylinder = shape == "圆柱形包装"
+
+    # 初始化圆柱形包装变量（用于兼容性）
     cylinder_diameter = 0.0
-    if is_cylinder:
-        cylinder_diameter = st.number_input(
+    cylinder_length = 0.0
+
+    # 标准包装尺寸
+    if not is_cylinder:
+        col1, col2, col3 = st.columns(3)
+        length_cm = col1.number_input(
+            "长(cm)*", min_value=0, value=vals["length_cm"])
+        width_cm = col2.number_input(
+            "宽(cm)*", min_value=0, value=vals["width_cm"]
+        )
+        height_cm = col3.number_input(
+            "高(cm)*", min_value=0, value=vals["height_cm"])
+    else:
+        # 圆柱形包装尺寸
+        col1, col2 = st.columns(2)
+        cylinder_diameter = col1.number_input(
             "圆柱直径(cm)*", min_value=0.0, value=float(vals["cylinder_diameter"])
         )
+        cylinder_length = col2.number_input(
+            "圆柱长度(cm)*",
+            min_value=0.0,
+            value=float(vals.get("cylinder_length", 0.0))
+        )
+        # 为圆柱形包装设置默认的长宽高值（用于兼容性）
+        length_cm = cylinder_diameter
+        width_cm = cylinder_diameter
+        height_cm = cylinder_length
     has_battery = st.checkbox("含电池", value=bool(vals["has_battery"]))
     choice = None
     battery_capacity_wh = 0.0
@@ -248,55 +352,114 @@ def edit_product_form():
             battery_voltage = col2.number_input(
                 "电池电压(V)*", min_value=0.0, value=float(vals["battery_voltage"])
             )
+            # 电池容量验证警告
+            if battery_capacity_mah > 0 and battery_voltage <= 0:
+                st.warning("请填写电池电压(V)")
+            elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                st.warning("请填写电池容量(mAh)")
     col1, col2 = st.columns(2)
     has_msds = col1.checkbox("有MSDS文件", value=bool(vals["has_msds"]))
     has_flammable = col2.checkbox("有易燃液体", value=bool(vals["has_flammable"]))
     shipping_fee = col1.number_input(
-        "发货方运费(元)*", min_value=0.0, value=float(vals["shipping_fee"])
+        "发货方运费(元)", min_value=0.0, value=float(vals["shipping_fee"])
     )
     labeling_fee = st.number_input(
-        "代贴单费用(元)*", min_value=0.0, value=float(vals["labeling_fee"])
+        "代贴单费用(元)", min_value=0.0, value=float(vals["labeling_fee"])
     )
     col1, col2 = st.columns(2)
     promotion_discount = col2.slider(
-        "活动折扣率", 0.0, 1.0, float(vals["promotion_discount"]), 0.01
-    )
+        "活动折扣率", 0.0, 100.0,
+        float(vals["promotion_discount"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     promotion_cost_rate = col1.slider(
-        "推广费用率", 0.0, 1.0, float(vals["promotion_cost_rate"]), 0.01
-    )
+        "推广费用率", 0.0, 100.0,
+        float(vals["promotion_cost_rate"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     target_profit_margin = col1.slider(
-        "目标利润率", 0.0, 1.0, float(vals["target_profit_margin"]), 0.01
-    )
+        "目标利润率", 0.0, 100.0,
+        float(vals["target_profit_margin"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     commission_rate = col2.slider(
-        "佣金率", 0.0, 1.0, float(vals["commission_rate"]), 0.01
-    )
+        "佣金率", 0.0, 100.0,
+        float(vals["commission_rate"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     withdrawal_fee_rate = col1.slider(
-        "提现费率", 0.0, 0.1, float(vals["withdrawal_fee_rate"]), 0.001
-    )
+        "提现费率", 0.0, 100.0,
+        float(vals["withdrawal_fee_rate"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     payment_processing_fee = col2.slider(
-        "支付手续费率", 0.0, 0.1, float(vals["payment_processing_fee"]), 0.001
-    )
+        "支付手续费率", 0.0, 100.0,
+        float(vals["payment_processing_fee"]) * 100.0, 1.0, format="%.1f%%"
+    ) / 100.0
     if st.button("保存修改"):
-        required = [name, weight_g, length_cm, width_cm, height_cm, unit_price]
-        if is_cylinder and cylinder_diameter <= 0:
-            required.append(None)
-        if has_battery and choice == "填写 Wh（瓦时）" and battery_capacity_wh <= 0:
-            required.append(None)
-        if (
-            has_battery
-            and choice == "填写 mAh + V"
-            and (battery_capacity_mah <= 0 or battery_voltage <= 0)
-        ):
-            required.append(None)
-        if any(v is None or (isinstance(v, (int, float)) and v <= 0)
-               for v in required):
-            st.error("请填写所有必填字段")
+        required = [name, weight_g, unit_price]
+        if not is_cylinder:
+            required.extend([length_cm, width_cm, height_cm])
+        else:
+            required.extend([cylinder_diameter, cylinder_length])
+        # 电池容量验证逻辑
+        if has_battery:
+            if choice == "填写 Wh（瓦时）":
+                if battery_capacity_wh <= 0:
+                    # 如果填写了Wh但值为0，跳过电池容量限制判断
+                    pass
+            elif choice == "填写 mAh + V":
+                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                    required.append(None)
+                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                    required.append(None)
+                elif battery_capacity_mah <= 0 and battery_voltage <= 0:
+                    # 如果都填了0，跳过电池容量限制判断
+                    pass
+                else:
+                    # 正常情况，不需要额外验证
+                    pass
+        # 检查必填字段
+        missing_fields = []
+        if not name:
+            missing_fields.append("产品名称")
+        if weight_g <= 0:
+            missing_fields.append("重量")
+        if unit_price <= 0:
+            missing_fields.append("进货单价")
+        if not is_cylinder:
+            if length_cm <= 0:
+                missing_fields.append("长度")
+            if width_cm <= 0:
+                missing_fields.append("宽度")
+            if height_cm <= 0:
+                missing_fields.append("高度")
+        else:
+            if cylinder_diameter <= 0:
+                missing_fields.append("圆柱直径")
+            if cylinder_length <= 0:
+                missing_fields.append("圆柱长度")
+        # 电池容量验证逻辑
+        if has_battery:
+            if choice == "填写 Wh（瓦时）":
+                if battery_capacity_wh <= 0:
+                    # 如果填写了Wh但值为0，跳过电池容量限制判断
+                    pass
+            elif choice == "填写 mAh + V":
+                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                    missing_fields.append("电池电压(V)")
+                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                    missing_fields.append("电池容量(mAh)")
+                elif battery_capacity_mah <= 0 and battery_voltage <= 0:
+                    # 如果都填了0，跳过电池容量限制判断
+                    pass
+                else:
+                    # 正常情况，不需要额外验证
+                    pass
+
+        if missing_fields:
+            st.error(f"请填写以下必填字段：{', '.join(missing_fields)}")
         else:
             c.execute(
                 """UPDATE products SET
                     name=?, russian_name=?, category=?, model=?,
                     weight_g=?, length_cm=?, width_cm=?, height_cm=?,
-                    is_cylinder=?, cylinder_diameter=?,
+                    is_cylinder=?, cylinder_diameter=?, cylinder_length=?,
                     has_battery=?, battery_capacity_wh=?,
                     battery_capacity_mah=?, battery_voltage=?,
                     has_msds=?, has_flammable=?,
@@ -316,6 +479,7 @@ def edit_product_form():
                     height_cm,
                     int(is_cylinder),
                     cylinder_diameter,
+                    cylinder_length if is_cylinder else 0.0,
                     int(has_battery),
                     battery_capacity_wh,
                     battery_capacity_mah,

@@ -186,6 +186,7 @@ def _upgrade_table_user_id(table: str):
                 height_cm INTEGER,
                 is_cylinder INTEGER,
                 cylinder_diameter REAL,
+                cylinder_length REAL,
                 has_battery INTEGER,
                 battery_capacity_wh REAL,
                 battery_capacity_mah INTEGER,
@@ -202,7 +203,7 @@ def _upgrade_table_user_id(table: str):
             INSERT INTO products (
                 user_id, name, russian_name, category, model,
                 unit_price, weight_g, length_cm, width_cm, height_cm,
-                is_cylinder, cylinder_diameter,
+                is_cylinder, cylinder_diameter, cylinder_length,
                 has_battery, battery_capacity_wh, battery_capacity_mah,
                 battery_voltage, has_msds, has_flammable,
                 shipping_fee, labeling_fee
@@ -211,7 +212,7 @@ def _upgrade_table_user_id(table: str):
                 (SELECT id FROM users WHERE role='admin' LIMIT 1),
                 name, russian_name, category, model,
                 unit_price, weight_g, length_cm, width_cm, height_cm,
-                is_cylinder, cylinder_diameter,
+                is_cylinder, cylinder_diameter, 0.0,
                 has_battery, battery_capacity_wh, battery_capacity_mah,
                 battery_voltage, has_msds, has_flammable,
                 shipping_fee, labeling_fee
@@ -252,8 +253,10 @@ def _upgrade_logistics_new_fields():
         "volume_coefficient": "INTEGER DEFAULT 5000",
         "price_min_rub": "REAL DEFAULT 0",
         "max_second_side": "INTEGER DEFAULT 0",
+        "min_second_side": "INTEGER DEFAULT 0",
         "min_length": "INTEGER DEFAULT 0",
         "max_cylinder_sum": "INTEGER DEFAULT 0",
+        "min_cylinder_sum": "INTEGER DEFAULT 0",
         "max_cylinder_length": "INTEGER DEFAULT 0",
         "min_cylinder_length": "INTEGER DEFAULT 0",
         "delivery_method": "TEXT DEFAULT 'unknown'",
@@ -264,6 +267,18 @@ def _upgrade_logistics_new_fields():
     for col, def_sql in new_cols.items():
         if col not in cols:
             c.execute(f"ALTER TABLE logistics ADD COLUMN {col} {def_sql}")
+    conn.commit()
+
+
+def _upgrade_products_cylinder_length():
+    """升级：新增产品圆柱长度字段"""
+    conn, c = get_db()
+    cols = [col[1]
+            for col in c.execute("PRAGMA table_info(products)").fetchall()]
+    if "cylinder_length" not in cols:
+        c.execute(
+            "ALTER TABLE products ADD COLUMN cylinder_length REAL DEFAULT 0"
+        )
     conn.commit()
 
 
@@ -330,6 +345,7 @@ def init_db():
             height_cm INTEGER,
             is_cylinder INTEGER,
             cylinder_diameter REAL,
+            cylinder_length REAL,
             has_battery INTEGER,
             battery_capacity_wh REAL,
             battery_capacity_mah INTEGER,
@@ -365,8 +381,10 @@ def init_db():
             max_sum_of_sides INTEGER,
             max_longest_side INTEGER,
             max_second_side INTEGER DEFAULT 0,
+            min_second_side INTEGER DEFAULT 0,
             min_length INTEGER DEFAULT 0,
             max_cylinder_sum INTEGER DEFAULT 0,
+            min_cylinder_sum INTEGER DEFAULT 0,
             max_cylinder_length INTEGER DEFAULT 0,
             min_cylinder_length INTEGER DEFAULT 0,
             volume_mode TEXT
@@ -403,6 +421,7 @@ def init_db():
     _upgrade_max_size_to_sides("logistics")
     _upgrade_old_volume_battery()
     _upgrade_logistics_new_fields()
+    _upgrade_products_cylinder_length()
     # 3. 初始管理员
     if not verify_user("admin", "admin123"):
         create_user("admin", "admin123", "admin")
@@ -426,17 +445,26 @@ def calculate_and_update_priority_groups():
         if not logistics_list:
             return 0, 0, 0
 
+        # 过滤出时效不为0的物流（参与平均值计算）
+        valid_logistics = [
+            log for log in logistics_list
+            if log['min_days'] > 0 and log['max_days'] > 0
+        ]
+
+        if not valid_logistics:
+            return 0, 0, 0
+
         # 计算平均最快时效(A)
-        min_days_sum = sum(log['min_days'] for log in logistics_list)
-        avg_fastest = min_days_sum / len(logistics_list)
+        min_days_sum = sum(log['min_days'] for log in valid_logistics)
+        avg_fastest = min_days_sum / len(valid_logistics)
 
         # 计算平均最慢时效(B)
-        max_days_sum = sum(log['max_days'] for log in logistics_list)
-        avg_slowest = max_days_sum / len(logistics_list)
+        max_days_sum = sum(log['max_days'] for log in valid_logistics)
+        avg_slowest = max_days_sum / len(valid_logistics)
 
         # 计算每个物流的平均时效(C)的平均值(D)
         avg_times = []
-        for log in logistics_list:
+        for log in valid_logistics:
             avg_time = (log['min_days'] + log['max_days']) / 2
             avg_times.append(avg_time)
         avg_overall = sum(avg_times) / len(avg_times)
@@ -447,6 +475,11 @@ def calculate_and_update_priority_groups():
         """为单个物流分配优先级组"""
         min_days = log['min_days']
         max_days = log['max_days']
+
+        # 如果时效为0，分配为E组（优先级最低）
+        if min_days == 0 and max_days == 0:
+            return 'E'
+
         avg_time = (min_days + max_days) / 2
 
         # 计算有多少个值小于平均值
