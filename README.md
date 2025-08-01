@@ -19,10 +19,10 @@ https://crossborder-pricing-engine-4viqqtwnjszrquyrevbwly.streamlit.app/
 
 📊 实测截图
 - 中国邮政运费 0 误差验证  
-  ![postal_verified](/docs/postal_verified.png)
+  ![postal_verified](/docs/postal_verified.jpg)
 
 - 运费 & 时效节省对比（速度/低价双策略）  
-  ![saving_report](/docs/saving_report.png)
+  ![saving_report](/docs/saving_report.jpg)
 
 🛠️ 技术栈
 语言：Python 3.12
