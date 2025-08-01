@@ -177,6 +177,175 @@ def pricing_calculator_page():
         else:
             st.info("无可用空运")
 
+    # ---- 计算平均运费和时效 ----
+    # 计算所有真正可用的陆运平均运费和时效（通过所有检查，包括价格限制）
+    available_land_costs = []
+    available_land_times = []
+    for item in all_costs_debug:
+        log = item["logistic"]
+        cost = item["cost"]
+        debug_info = item["debug"]
+        
+        # 检查是否真正可用（通过所有检查）
+        if (cost is not None and log.get("type") == "land" and 
+            not any("超价格上限" in line or "低于价格下限" in line for line in debug_info)):
+            available_land_costs.append(cost)
+            min_days = log.get("min_days", 0)
+            max_days = log.get("max_days", 0)
+            avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
+            available_land_times.append(avg_time)
+
+    # 计算所有真正可用的空运平均运费和时效（通过所有检查，包括价格限制）
+    available_air_costs = []
+    available_air_times = []
+    for item in all_costs_debug:
+        log = item["logistic"]
+        cost = item["cost"]
+        debug_info = item["debug"]
+        
+        # 检查是否真正可用（通过所有检查）
+        if (cost is not None and log.get("type") == "air" and 
+            not any("超价格上限" in line or "低于价格下限" in line for line in debug_info)):
+            available_air_costs.append(cost)
+            min_days = log.get("min_days", 0)
+            max_days = log.get("max_days", 0)
+            avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
+            available_air_times.append(avg_time)
+
+    # 显示平均运费和时效信息
+    st.divider()
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if available_land_costs:
+            avg_land_cost = sum(available_land_costs) / len(available_land_costs)
+            avg_land_time = sum(available_land_times) / len(available_land_times)
+            
+            if land_cost is not None:
+                cost_saving = ((avg_land_cost - land_cost) / avg_land_cost) * 100
+                
+                # 计算最佳陆运的时效
+                best_land_time = 0
+                best_land_min_days = 0
+                best_land_max_days = 0
+                for item in all_costs_debug:
+                    log = item["logistic"]
+                    if (log.get("name") == land_name and log.get("type") == "land"):
+                        best_land_min_days = log.get("min_days", 0)
+                        best_land_max_days = log.get("max_days", 0)
+                        best_land_time = (best_land_min_days + best_land_max_days) / 2 if best_land_max_days > 0 else best_land_min_days
+                        break
+                
+                # 检查是否有时效数据
+                if best_land_min_days == 0 and best_land_max_days == 0:
+                    time_saving_text = "该物流未填写时效"
+                else:
+                    time_saving = avg_land_time - best_land_time
+                    time_saving_text = f"{time_saving:.1f}天"
+                
+                st.markdown(
+                    f"""
+                    <div style="font-size:18px; margin-bottom:8px;">
+                        <strong>陆运统计：</strong>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均运费：<span style="color:#d9534f;">¥{avg_land_cost:.2f}</span>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        节省运费：<span style="color:#28a745;">{cost_saving:.1f}%</span>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均时效：<span style="color:#007acc;">{avg_land_time:.1f}天</span>
+                    </div>
+                    <div style="font-size:16px;">
+                        时效节省：<span style="color:#28a745;">{time_saving_text}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div style="font-size:18px; margin-bottom:8px;">
+                        <strong>陆运统计：</strong>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均运费：<span style="color:#d9534f;">¥{avg_land_cost:.2f}</span>
+                    </div>
+                    <div style="font-size:16px;">
+                        平均时效：<span style="color:#007acc;">{avg_land_time:.1f}天</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("无可用陆运数据")
+
+    with col2:
+        if available_air_costs:
+            avg_air_cost = sum(available_air_costs) / len(available_air_costs)
+            avg_air_time = sum(available_air_times) / len(available_air_times)
+            
+            if air_cost is not None:
+                cost_saving = ((avg_air_cost - air_cost) / avg_air_cost) * 100
+                
+                # 计算最佳空运的时效
+                best_air_time = 0
+                best_air_min_days = 0
+                best_air_max_days = 0
+                for item in all_costs_debug:
+                    log = item["logistic"]
+                    if (log.get("name") == air_name and log.get("type") == "air"):
+                        best_air_min_days = log.get("min_days", 0)
+                        best_air_max_days = log.get("max_days", 0)
+                        best_air_time = (best_air_min_days + best_air_max_days) / 2 if best_air_max_days > 0 else best_air_min_days
+                        break
+                
+                # 检查是否有时效数据
+                if best_air_min_days == 0 and best_air_max_days == 0:
+                    time_saving_text = "该物流未填写时效"
+                else:
+                    time_saving = avg_air_time - best_air_time
+                    time_saving_text = f"{time_saving:.1f}天"
+                
+                st.markdown(
+                    f"""
+                    <div style="font-size:18px; margin-bottom:8px;">
+                        <strong>空运统计：</strong>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均运费：<span style="color:#d9534f;">¥{avg_air_cost:.2f}</span>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        节省运费：<span style="color:#28a745;">{cost_saving:.1f}%</span>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均时效：<span style="color:#007acc;">{avg_air_time:.1f}天</span>
+                    </div>
+                    <div style="font-size:16px;">
+                        时效节省：<span style="color:#28a745;">{time_saving_text}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div style="font-size:18px; margin-bottom:8px;">
+                        <strong>空运统计：</strong>
+                    </div>
+                    <div style="font-size:16px; margin-bottom:4px;">
+                        平均运费：<span style="color:#d9534f;">¥{avg_air_cost:.2f}</span>
+                    </div>
+                    <div style="font-size:16px;">
+                        平均时效：<span style="color:#007acc;">{avg_air_time:.1f}天</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("无可用空运数据")
+
     with st.expander("定价明细分析"):
         cost_data = pd.DataFrame(
             {
