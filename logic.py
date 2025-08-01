@@ -266,82 +266,13 @@ def calculate_logistic_cost(logistic, product, debug=False):
             debug_info.append(
                 f"首重费用: {first_fee}，超出部分单位数: {extra_units}，总运费: {cost}"
             )
-    # 限价判断（人民币→卢布）
-    try:
-        rate = ExchangeRateService().get_exchange_rate()  # 1 CNY = x RUB
-        unit_price = float(product.get("unit_price", 0))
-        labeling_fee = float(product.get("labeling_fee", 0))
-        shipping_fee = float(product.get("shipping_fee", 0))
-        total_cny = unit_price + labeling_fee + shipping_fee + 15 * rate + cost
-        rough_cny = (
-            total_cny
-            * (1 + product.get("target_profit_margin", 0))
-            / (
-                (1 - product.get("promotion_cost_rate", 0))
-                * (1 - product.get("commission_rate", 0))
-                * (1 - product.get("withdrawal_fee_rate", 0))
-                * (1 - product.get("payment_processing_fee", 0))
-            )
-        )
-        rough_rub = rough_cny / rate
-
-        # 获取价格限制和货币类型
-        limit_value = logistic.get("price_limit_rub") or 0
-        min_value = logistic.get("price_min_rub") or 0
-        limit_currency = logistic.get("price_limit_currency", "RUB")
-        min_currency = logistic.get("price_min_currency", "RUB")
-
-        # 根据货币类型进行价格比较
-        from exchange_service import get_usd_rate
-        usd_rate = get_usd_rate()
-
-        if limit_currency == "USD" and limit_value > 0:
-            # 美元限价：将估算售价转换为美元进行比较
-            rough_usd = rough_cny / usd_rate
-            debug_info.append(
-                f"限价判断: 估算售价 {rough_usd:.2f} USD, "
-                f"上限 {limit_value:.2f} USD"
-            )
-            if rough_usd > limit_value:
-                debug_info.append("超价格上限，返回 None")
-                return (None, debug_info) if debug else None
-        elif limit_value > 0:
-            # 卢布限价：直接比较卢布价格
-            debug_info.append(
-                f"限价判断: 估算售价 {rough_rub:.2f} RUB, "
-                f"上限 {limit_value:.2f} RUB"
-            )
-            if rough_rub > limit_value:
-                debug_info.append("超价格上限，返回 None")
-                return (None, debug_info) if debug else None
-
-        if min_currency == "USD" and min_value > 0:
-            # 美元下限：将估算售价转换为美元进行比较
-            rough_usd = rough_cny / usd_rate
-            debug_info.append(f"下限 {min_value:.2f} USD")
-            if rough_usd < min_value:
-                debug_info.append("低于价格下限，返回 None")
-                return (None, debug_info) if debug else None
-        elif min_value > 0:
-            # 卢布下限：直接比较卢布价格
-            debug_info.append(f"下限 {min_value:.2f} RUB")
-            if rough_rub < min_value:
-                debug_info.append("低于价格下限，返回 None")
-                return (None, debug_info) if debug else None
-    except Exception as e:
-        debug_info.append(f"限价判断出错: {e}")
-        if debug:
-            return None, debug_info
-        else:
-            return None
+    # 价格限制检查将在 _cost_and_filter 中进行
     debug_info.append(f"最终运费: {cost}")
     return (cost, debug_info) if debug else cost
 
 
 def calculate_pricing(product, land_logistics, air_logistics,
-                      priority="低价优先", price_limit=0.0,
-                      price_limit_currency="卢布", price_min=0.0,
-                      price_min_currency="卢布"):
+                      priority="低价优先"):
     """计算定价"""
     from functools import lru_cache
     from exchange_service import get_usd_rate
@@ -353,16 +284,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
     rate = ExchangeRateService().get_exchange_rate()
     usd_rate = get_usd_rate()
 
-    # 货币转换（如果没有传入价格限制，则使用默认值）
-    if price_limit_currency == "卢布":
-        price_limit_cny = price_limit / rate if price_limit > 0 else 0
-    else:  # 美元
-        price_limit_cny = price_limit * usd_rate if price_limit > 0 else 0
 
-    if price_min_currency == "卢布":
-        price_min_cny = price_min / rate if price_min > 0 else 0
-    else:  # 美元
-        price_min_cny = price_min * usd_rate if price_min > 0 else 0
 
     # 2. 缓存版 calculate_logistic_cost
     @lru_cache(maxsize=256)
@@ -398,20 +320,66 @@ def calculate_pricing(product, land_logistics, air_logistics,
             )
 
             # 价格限制检查
-            limit = log.get("price_limit") or 0
-            min_limit = log.get("price_min_rub") or 0
+            # 获取物流规则的价格限制
+            # 根据货币类型读取正确的价格限制值
+            log_limit_currency = log.get("price_limit_currency", "RUB")
+            if log_limit_currency == "RUB":
+                log_limit_value = log.get("price_limit_rub") or 0
+            else:  # USD
+                # 如果货币是USD，需要从price_limit字段读取（存储的是转换后的CNY值）
+                # 然后转换回USD
+                price_limit_cny = log.get("price_limit") or 0
+                from exchange_service import get_usd_rate
+                usd_rate = get_usd_rate()
+                log_limit_value = price_limit_cny / usd_rate if price_limit_cny > 0 else 0
+            
+            log_min_currency = log.get("price_min_currency", "RUB")
+            if log_min_currency == "RUB":
+                log_min_value = log.get("price_min_rub") or 0
+            else:  # USD
+                # 如果货币是USD，需要从price_min字段读取（存储的是转换后的CNY值）
+                # 然后转换回USD
+                price_min_cny = log.get("price_min") or 0
+                from exchange_service import get_usd_rate
+                usd_rate = get_usd_rate()
+                log_min_value = price_min_cny / usd_rate if price_min_cny > 0 else 0
 
-            # 使用页面设置的价格限制（优先级更高）
-            if price_limit_cny > 0:
-                limit = price_limit_cny
-            if price_min_cny > 0:
-                min_limit = price_min_cny
+            # 根据货币类型进行价格比较
+            if log_limit_currency == "USD" and log_limit_value > 0:
+                # 美元限价：将估算售价转换为美元进行比较
+                rough_usd = rough / usd_rate
+                debug_info.append(
+                    f"限价判断: 估算售价 {rough_usd:.2f} USD, "
+                    f"上限 {log_limit_value:.2f} USD"
+                )
+                if rough_usd > log_limit_value:
+                    debug_info.append("超价格上限，跳过")
+                    continue
+            elif log_limit_currency == "RUB" and log_limit_value > 0:
+                # 卢布限价：将估算售价转换为卢布进行比较
+                rough_rub = rough / rate
+                debug_info.append(
+                    f"限价判断: 估算售价 {rough_rub:.2f} RUB, "
+                    f"上限 {log_limit_value:.2f} RUB"
+                )
+                if rough_rub > log_limit_value:
+                    debug_info.append("超价格上限，跳过")
+                    continue
 
-            # 检查价格上限和下限
-            if 0 < limit < rough:
-                continue
-            if min_limit > 0 and rough < min_limit:
-                continue
+            if log_min_currency == "USD" and log_min_value > 0:
+                # 美元下限：将估算售价转换为美元进行比较
+                rough_usd = rough / usd_rate
+                debug_info.append(f"下限 {log_min_value:.2f} USD")
+                if rough_usd < log_min_value:
+                    debug_info.append("低于价格下限，跳过")
+                    continue
+            elif log_min_currency == "RUB" and log_min_value > 0:
+                # 卢布下限：将估算售价转换为卢布进行比较
+                rough_rub = rough / rate
+                debug_info.append(f"下限 {log_min_value:.2f} RUB")
+                if rough_rub < log_min_value:
+                    debug_info.append("低于价格下限，跳过")
+                    continue
 
             res.append((log, cost))
         return res
@@ -488,23 +456,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 f"{price:.2f}"
             )
 
-            # 添加价格限制调试信息（仅当有设置价格限制时显示）
-            if price_limit_cny > 0:
-                currency_display = (
-                    "USD" if price_limit_currency == "USD" else "RUB"
-                )
-                debug_list.append(
-                    f"价格上限: {price_limit:.2f} {currency_display} "
-                    f"(约 {price_limit_cny:.2f} CNY)"
-                )
-            if price_min_cny > 0:
-                currency_display = (
-                    "USD" if price_min_currency == "USD" else "RUB"
-                )
-                debug_list.append(
-                    f"价格下限: {price_min:.2f} {currency_display} "
-                    f"(约 {price_min_cny:.2f} CNY)"
-                )
+
         return price
     land_debug = []
     air_debug = []
@@ -732,10 +684,28 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
         rough_rub = rough_cny / rate
 
         # 获取价格限制和货币类型
-        limit_value = logistic.get("price_limit_rub", 0)
-        min_value = logistic.get("price_min_rub", 0)
+        # 根据货币类型读取正确的价格限制值
         limit_currency = logistic.get("price_limit_currency", "RUB")
+        if limit_currency == "RUB":
+            limit_value = logistic.get("price_limit_rub", 0)
+        else:  # USD
+            # 如果货币是USD，需要从price_limit字段读取（存储的是转换后的CNY值）
+            # 然后转换回USD
+            price_limit_cny = logistic.get("price_limit", 0)
+            from exchange_service import get_usd_rate
+            usd_rate = get_usd_rate()
+            limit_value = price_limit_cny / usd_rate if price_limit_cny > 0 else 0
+        
         min_currency = logistic.get("price_min_currency", "RUB")
+        if min_currency == "RUB":
+            min_value = logistic.get("price_min_rub", 0)
+        else:  # USD
+            # 如果货币是USD，需要从price_min字段读取（存储的是转换后的CNY值）
+            # 然后转换回USD
+            price_min_cny = logistic.get("price_min", 0)
+            from exchange_service import get_usd_rate
+            usd_rate = get_usd_rate()
+            min_value = price_min_cny / usd_rate if price_min_cny > 0 else 0
 
         # 根据货币类型进行价格比较
         from exchange_service import get_usd_rate

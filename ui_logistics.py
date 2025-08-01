@@ -202,7 +202,7 @@ def logistics_page():
         st.subheader("送货方式")
         delivery_method = st.radio(
             "送货方式",
-            ["送货上门", "送货到取货点", "未知"],
+            ["送货到取货点", "送货上门", "未知"],
             horizontal=True,
             key="add_delivery_method"
         )
@@ -685,7 +685,7 @@ def edit_logistic_form():
         "unknown": "未知"
     }
     delivery_method_options = [
-        "送货上门", "送货到取货点", "未知"
+        "送货到取货点", "送货上门", "未知"
     ]
     current_delivery = delivery_method_map.get(
         vals.get("delivery_method", "unknown"), "未知"

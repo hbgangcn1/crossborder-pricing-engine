@@ -282,6 +282,18 @@ def _upgrade_products_cylinder_length():
     conn.commit()
 
 
+def _upgrade_logistics_price_min():
+    """升级：新增物流价格下限字段"""
+    conn, c = get_db()
+    cols = [col[1]
+            for col in c.execute("PRAGMA table_info(logistics)").fetchall()]
+    if "price_min" not in cols:
+        c.execute(
+            "ALTER TABLE logistics ADD COLUMN price_min REAL DEFAULT 0"
+        )
+    conn.commit()
+
+
 def create_user(username, password, role="user", email=None):
     """创建用户"""
     conn, c = get_db()
@@ -374,6 +386,7 @@ def init_db():
             max_days INTEGER,
             price_limit REAL,
             price_limit_rub REAL,
+            price_min REAL DEFAULT 0,
             price_min_rub REAL DEFAULT 0,
             base_fee REAL DEFAULT 0,
             min_weight INTEGER,
@@ -422,6 +435,7 @@ def init_db():
     _upgrade_old_volume_battery()
     _upgrade_logistics_new_fields()
     _upgrade_products_cylinder_length()
+    _upgrade_logistics_price_min()
     # 3. 初始管理员
     if not verify_user("admin", "admin123"):
         create_user("admin", "admin123", "admin")

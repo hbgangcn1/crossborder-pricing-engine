@@ -28,6 +28,8 @@ def pricing_calculator_page():
             horizontal=True
         )
 
+
+
     # ------------- 1. 选择产品 -------------
     products = pd.read_sql(
         "SELECT id, name FROM products WHERE user_id = ?", conn, params=(uid,)
@@ -242,6 +244,7 @@ def pricing_calculator_page():
             st.dataframe(pd.DataFrame(profit_rows))
         else:
             st.info("暂无可用定价结果")
+
 
     # 物流淘汰原因
     with st.expander("物流淘汰原因"):
