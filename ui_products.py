@@ -90,23 +90,23 @@ def products_page():
         labeling_fee = st.number_input("代贴单费用(元)", min_value=0.0, value=0.0)
         st.subheader("定价参数")
         col1, col2 = st.columns(2)
-        promotion_discount = col2.slider(
-            "活动折扣率", 0.0, 100.0, 5.0, 1.0, format="%.1f%%"
+        promotion_discount = col2.number_input(
+            "活动折扣率(%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1, format="%.1f"
         ) / 100.0
-        promotion_cost_rate = col1.slider(
-            "推广费用率", 0.0, 100.0, 11.5, 1.0, format="%.1f%%"
+        promotion_cost_rate = col1.number_input(
+            "推广费用率(%)", min_value=0.0, max_value=100.0, value=11.5, step=0.1, format="%.1f"
         ) / 100.0
-        target_profit_margin = col1.slider(
-            "目标利润率", 0.0, 100.0, 50.0, 1.0, format="%.1f%%"
+        target_profit_margin = col1.number_input(
+            "目标利润率(%)", min_value=0.0, max_value=100.0, value=50.0, step=0.1, format="%.1f"
         ) / 100.0
-        commission_rate = col2.slider(
-            "佣金率", 0.0, 100.0, 17.5, 1.0, format="%.1f%%"
+        commission_rate = col2.number_input(
+            "佣金率(%)", min_value=0.0, max_value=100.0, value=17.5, step=0.1, format="%.1f"
         ) / 100.0
-        withdrawal_fee_rate = col1.slider(
-            "提现费率", 0.0, 100.0, 1.0, 1.0, format="%.1f%%"
+        withdrawal_fee_rate = col1.number_input(
+            "提现费率(%)", min_value=0.0, max_value=100.0, value=1.0, step=0.1, format="%.1f"
         ) / 100.0
-        payment_processing_fee = col2.slider(
-            "支付手续费率", 0.0, 100.0, 1.3, 1.0, format="%.1f%%"
+        payment_processing_fee = col2.number_input(
+            "支付手续费率(%)", min_value=0.0, max_value=100.0, value=1.3, step=0.1, format="%.1f"
         ) / 100.0
         if st.button("添加产品"):
             required = [
@@ -367,29 +367,29 @@ def edit_product_form():
         "代贴单费用(元)", min_value=0.0, value=float(vals["labeling_fee"])
     )
     col1, col2 = st.columns(2)
-    promotion_discount = col2.slider(
-        "活动折扣率", 0.0, 100.0,
-        float(vals["promotion_discount"]) * 100.0, 1.0, format="%.1f%%"
+    promotion_discount = col2.number_input(
+        "活动折扣率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["promotion_discount"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
-    promotion_cost_rate = col1.slider(
-        "推广费用率", 0.0, 100.0,
-        float(vals["promotion_cost_rate"]) * 100.0, 1.0, format="%.1f%%"
+    promotion_cost_rate = col1.number_input(
+        "推广费用率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["promotion_cost_rate"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
-    target_profit_margin = col1.slider(
-        "目标利润率", 0.0, 100.0,
-        float(vals["target_profit_margin"]) * 100.0, 1.0, format="%.1f%%"
+    target_profit_margin = col1.number_input(
+        "目标利润率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["target_profit_margin"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
-    commission_rate = col2.slider(
-        "佣金率", 0.0, 100.0,
-        float(vals["commission_rate"]) * 100.0, 1.0, format="%.1f%%"
+    commission_rate = col2.number_input(
+        "佣金率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["commission_rate"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
-    withdrawal_fee_rate = col1.slider(
-        "提现费率", 0.0, 100.0,
-        float(vals["withdrawal_fee_rate"]) * 100.0, 1.0, format="%.1f%%"
+    withdrawal_fee_rate = col1.number_input(
+        "提现费率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["withdrawal_fee_rate"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
-    payment_processing_fee = col2.slider(
-        "支付手续费率", 0.0, 100.0,
-        float(vals["payment_processing_fee"]) * 100.0, 1.0, format="%.1f%%"
+    payment_processing_fee = col2.number_input(
+        "支付手续费率(%)", min_value=0.0, max_value=100.0,
+        value=float(vals["payment_processing_fee"]) * 100.0, step=0.1, format="%.1f"
     ) / 100.0
     if st.button("保存修改"):
         required = [name, weight_g, unit_price]

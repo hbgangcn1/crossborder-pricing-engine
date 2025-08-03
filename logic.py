@@ -74,10 +74,10 @@ def calculate_logistic_cost(logistic, product, debug=False):
 
             # 首先检查物流是否有圆柱形包装限制
             has_cylinder_limits = (
-                logistic.get("max_cylinder_sum", 0) > 0
-                or logistic.get("min_cylinder_sum", 0) > 0
-                or logistic.get("max_cylinder_length", 0) > 0
-                or logistic.get("min_cylinder_length", 0) > 0
+                logistic.get("max_cylinder_sum", 0) > 0 or
+                logistic.get("min_cylinder_sum", 0) > 0 or
+                logistic.get("max_cylinder_length", 0) > 0 or
+                logistic.get("min_cylinder_length", 0) > 0
             )
 
             if has_cylinder_limits:
@@ -305,14 +305,13 @@ def calculate_pricing(product, land_logistics, air_logistics,
 
             # 粗略估算价格
             rough = (
-                (unit_price + labeling_fee + shipping_fee + 15 * rate + cost)
-                * (1 + product["target_profit_margin"])
-                / (
-                    (1 - product["promotion_cost_rate"])
-                    * (1 - product["commission_rate"])
-                    * (1 - product["withdrawal_fee_rate"])
-                    * (1 - product["payment_processing_fee"])
-                )
+                (unit_price + labeling_fee + shipping_fee + 15 * rate + cost) /
+                (1 - product["target_profit_margin"])
+            ) / (
+                (1 - product["promotion_cost_rate"]) *
+                (1 - product["commission_rate"]) *
+                (1 - product["withdrawal_fee_rate"]) *
+                (1 - product["payment_processing_fee"])
             )
 
             # 价格限制检查
@@ -429,25 +428,26 @@ def calculate_pricing(product, land_logistics, air_logistics,
     # 5. 最终价格
     def _final_price(cost, debug_list=None):
         total_cost = (
-            unit_price
-            + labeling_fee
-            + shipping_fee
-            + cost
-            + 15 * rate
+            unit_price +
+            labeling_fee +
+            shipping_fee +
+            cost +
+            15 * rate
         )
         denominator = (
-            (1 - product["promotion_cost_rate"])
-            * (1 - product["commission_rate"])
-            * (1 - product["withdrawal_fee_rate"])
-            * (1 - product["payment_processing_fee"])
+            (1 - product["promotion_cost_rate"]) *
+            (1 - product["commission_rate"]) *
+            (1 - product["withdrawal_fee_rate"]) *
+            (1 - product["payment_processing_fee"])
         )
         price = round(
-            total_cost * (1 + product["target_profit_margin"]) / denominator, 2
+            (total_cost / (1 - product["target_profit_margin"])) /
+            denominator, 2
         )
         if debug_list is not None:
             debug_list.append(
                 "定价公式: (("
-                f"{total_cost:.2f}) * (1 + "
+                f"{total_cost:.2f}) / (1 - "
                 f"{product['target_profit_margin']})"
                 ") / "
                 f"{denominator:.4f} = "
@@ -537,10 +537,10 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
 
         # 首先检查物流是否有圆柱形包装限制
         has_cylinder_limits = (
-            logistic.get("max_cylinder_sum", 0) > 0
-            or logistic.get("min_cylinder_sum", 0) > 0
-            or logistic.get("max_cylinder_length", 0) > 0
-            or logistic.get("min_cylinder_length", 0) > 0
+            logistic.get("max_cylinder_sum", 0) > 0 or
+            logistic.get("min_cylinder_sum", 0) > 0 or
+            logistic.get("max_cylinder_length", 0) > 0 or
+            logistic.get("min_cylinder_length", 0) > 0
         )
 
         if has_cylinder_limits:
@@ -658,26 +658,25 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
             cost = (
                 first_cost
                 if w <= first_w
-                else first_cost
-                + math.ceil((w - first_w) / continue_unit)
-                * logistic.get("continue_fee", 0)
+                else first_cost +
+                math.ceil((w - first_w) / continue_unit) *
+                logistic.get("continue_fee", 0)
             )
         # 估算人民币总成本
         total_cny = unit_price + labeling_fee + shipping_fee + 15 * rate + cost
         # 估算人民币售价
         denominator = (
-            (1 - product.get("promotion_cost_rate", 0))
-            * (1 - product.get("commission_rate", 0))
-            * (1 - product.get("withdrawal_fee_rate", 0))
-            * (1 - product.get("payment_processing_fee", 0))
+            (1 - product.get("promotion_cost_rate", 0)) *
+            (1 - product.get("commission_rate", 0)) *
+            (1 - product.get("withdrawal_fee_rate", 0)) *
+            (1 - product.get("payment_processing_fee", 0))
         )
         if denominator == 0:
             return "费率参数异常导致除以 0"
         rough_cny = (
-            total_cny
-            * (1 + product.get("target_profit_margin", 0))
-            / denominator
-        )
+            total_cny /
+            (1 - product.get("target_profit_margin", 0))
+        ) / denominator
         rough_rub = rough_cny / rate
 
         # 获取价格限制和货币类型
