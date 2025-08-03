@@ -248,6 +248,16 @@ def products_page():
                     st.rerun()
             with col_del:
                 if st.button("删除产品", key=f"del_btn_{product_id}"):
+                    st.session_state.delete_confirm_product_id = product_id
+                    st.rerun()
+        
+        # 删除确认对话框
+        if st.session_state.get("delete_confirm_product_id"):
+            st.warning("确定要删除这个产品吗？")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("确定删除", key="confirm_delete_product"):
+                    product_id = st.session_state.delete_confirm_product_id
                     c.execute(
                         "DELETE FROM products WHERE id=? AND user_id=?",
                         (product_id, uid),
@@ -260,6 +270,11 @@ def products_page():
                         conn,
                         params=(uid,),
                     )
+                    del st.session_state.delete_confirm_product_id
+                    st.rerun()
+            with col_cancel:
+                if st.button("取消", key="cancel_delete_product"):
+                    del st.session_state.delete_confirm_product_id
                     st.rerun()
     else:
         st.info("暂无产品数据")

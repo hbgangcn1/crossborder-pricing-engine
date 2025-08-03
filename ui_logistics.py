@@ -414,15 +414,7 @@ def logistics_page():
                         "删除",
                         key=f"del_land_{row['id']}"
                     ):
-                        c.execute(
-                            "DELETE FROM logistics WHERE id=? AND user_id=?",
-                            (row["id"], uid),
-                        )
-                        conn.commit()
-
-                        # 重新计算优先级分组
-                        calculate_and_update_priority_groups()
-
+                        st.session_state.delete_confirm_logistic_id = row["id"]
                         st.rerun()
         else:
             st.info("暂无陆运数据")
@@ -450,18 +442,33 @@ def logistics_page():
                         "删除",
                         key=f"del_air_{row['id']}"
                     ):
-                        c.execute(
-                            "DELETE FROM logistics WHERE id=? AND user_id=?",
-                            (row["id"], uid),
-                        )
-                        conn.commit()
-
-                        # 重新计算优先级分组
-                        calculate_and_update_priority_groups()
-
+                        st.session_state.delete_confirm_logistic_id = row["id"]
                         st.rerun()
         else:
             st.info("暂无空运数据")
+    
+    # 删除确认对话框
+    if st.session_state.get("delete_confirm_logistic_id"):
+        st.warning("确定要删除这个物流规则吗？")
+        col_confirm, col_cancel = st.columns(2)
+        with col_confirm:
+            if st.button("确定删除", key="confirm_delete_logistic"):
+                logistic_id = st.session_state.delete_confirm_logistic_id
+                c.execute(
+                    "DELETE FROM logistics WHERE id=? AND user_id=?",
+                    (logistic_id, uid),
+                )
+                conn.commit()
+
+                # 重新计算优先级分组
+                calculate_and_update_priority_groups()
+
+                del st.session_state.delete_confirm_logistic_id
+                st.rerun()
+        with col_cancel:
+            if st.button("取消", key="cancel_delete_logistic"):
+                del st.session_state.delete_confirm_logistic_id
+                st.rerun()
 
 
 def edit_logistic_form():
