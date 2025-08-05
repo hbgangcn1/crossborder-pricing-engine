@@ -91,22 +91,28 @@ def products_page():
         st.subheader("定价参数")
         col1, col2 = st.columns(2)
         promotion_discount = col2.number_input(
-            "活动折扣率(%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1, format="%.1f"
+            "活动折扣率(%)", min_value=0.0, max_value=100.0,
+            value=5.0, step=0.1, format="%.1f"
         ) / 100.0
         promotion_cost_rate = col1.number_input(
-            "推广费用率(%)", min_value=0.0, max_value=100.0, value=11.5, step=0.1, format="%.1f"
+            "推广费用率(%)", min_value=0.0, max_value=100.0,
+            value=11.5, step=0.1, format="%.1f"
         ) / 100.0
         target_profit_margin = col1.number_input(
-            "目标利润率(%)", min_value=0.0, max_value=100.0, value=50.0, step=0.1, format="%.1f"
+            "目标利润率(%)", min_value=0.0, max_value=100.0,
+            value=50.0, step=0.1, format="%.1f"
         ) / 100.0
         commission_rate = col2.number_input(
-            "佣金率(%)", min_value=0.0, max_value=100.0, value=17.5, step=0.1, format="%.1f"
+            "佣金率(%)", min_value=0.0, max_value=100.0,
+            value=17.5, step=0.1, format="%.1f"
         ) / 100.0
         withdrawal_fee_rate = col1.number_input(
-            "提现费率(%)", min_value=0.0, max_value=100.0, value=1.0, step=0.1, format="%.1f"
+            "提现费率(%)", min_value=0.0, max_value=100.0,
+            value=1.0, step=0.1, format="%.1f"
         ) / 100.0
         payment_processing_fee = col2.number_input(
-            "支付手续费率(%)", min_value=0.0, max_value=100.0, value=1.3, step=0.1, format="%.1f"
+            "支付手续费率(%)", min_value=0.0, max_value=100.0,
+            value=1.3, step=0.1, format="%.1f"
         ) / 100.0
         if st.button("添加产品"):
             required = [
@@ -178,36 +184,35 @@ def products_page():
                 c.execute(
                     "INSERT INTO products ("
                     "user_id, name, russian_name, category, model, "
-                    "weight_g, length_cm, width_cm, height_cm, "
-                    "is_cylinder, cylinder_diameter, cylinder_length, "
-                    "has_battery, battery_capacity_wh, battery_capacity_mah, "
+                    "unit_price, weight_g, length_cm, width_cm, height_cm, "
+                    "is_cylinder, cylinder_diameter, has_battery, "
+                    "battery_capacity_wh, battery_capacity_mah, "
                     "battery_voltage, has_msds, has_flammable, "
-                    "unit_price, shipping_fee, labeling_fee, "
-                    "promotion_discount, promotion_cost_rate, "
-                    "target_profit_margin, commission_rate, "
-                    "withdrawal_fee_rate, payment_processing_fee) "
+                    "shipping_fee, labeling_fee, promotion_discount, "
+                    "promotion_cost_rate, target_profit_margin, "
+                    "commission_rate, withdrawal_fee_rate, "
+                    "payment_processing_fee, cylinder_length) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
-                    "?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         uid,
                         name,
                         russian_name,
                         category,
                         model,
+                        unit_price,
                         weight_g,
                         length_cm,
                         width_cm,
                         height_cm,
                         int(is_cylinder),
                         cylinder_diameter,
-                        cylinder_length if is_cylinder else 0.0,
                         int(has_battery),
                         battery_capacity_wh,
                         battery_capacity_mah,
                         battery_voltage,
                         int(has_msds),
                         int(has_flammable),
-                        unit_price,
                         shipping_fee,
                         labeling_fee,
                         promotion_discount,
@@ -216,6 +221,7 @@ def products_page():
                         commission_rate,
                         withdrawal_fee_rate,
                         payment_processing_fee,
+                        cylinder_length if is_cylinder else 0.0,
                     ),
                 )
                 conn.commit()
@@ -250,7 +256,7 @@ def products_page():
                 if st.button("删除产品", key=f"del_btn_{product_id}"):
                     st.session_state.delete_confirm_product_id = product_id
                     st.rerun()
-        
+
         # 删除确认对话框
         if st.session_state.get("delete_confirm_product_id"):
             st.warning("确定要删除这个产品吗？")
@@ -384,27 +390,33 @@ def edit_product_form():
     col1, col2 = st.columns(2)
     promotion_discount = col2.number_input(
         "活动折扣率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["promotion_discount"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["promotion_discount"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     promotion_cost_rate = col1.number_input(
         "推广费用率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["promotion_cost_rate"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["promotion_cost_rate"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     target_profit_margin = col1.number_input(
         "目标利润率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["target_profit_margin"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["target_profit_margin"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     commission_rate = col2.number_input(
         "佣金率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["commission_rate"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["commission_rate"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     withdrawal_fee_rate = col1.number_input(
         "提现费率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["withdrawal_fee_rate"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["withdrawal_fee_rate"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     payment_processing_fee = col2.number_input(
         "支付手续费率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["payment_processing_fee"]) * 100.0, step=0.1, format="%.1f"
+        value=float(vals["payment_processing_fee"]) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     if st.button("保存修改"):
         required = [name, weight_g, unit_price]
