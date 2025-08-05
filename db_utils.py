@@ -282,6 +282,25 @@ def _upgrade_products_cylinder_length():
     conn.commit()
 
 
+def _upgrade_products_new_fields():
+    """升级：新增产品定价相关字段"""
+    conn, c = get_db()
+    cols = [col[1]
+            for col in c.execute("PRAGMA table_info(products)").fetchall()]
+    new_cols = {
+        "promotion_discount": "REAL DEFAULT 0.05",
+        "promotion_cost_rate": "REAL DEFAULT 0.115",
+        "target_profit_margin": "REAL DEFAULT 0.5",
+        "commission_rate": "REAL DEFAULT 0.17",
+        "withdrawal_fee_rate": "REAL DEFAULT 0.01",
+        "payment_processing_fee": "REAL DEFAULT 0.01"
+    }
+    for col, def_sql in new_cols.items():
+        if col not in cols:
+            c.execute(f"ALTER TABLE products ADD COLUMN {col} {def_sql}")
+    conn.commit()
+
+
 def _upgrade_logistics_price_min():
     """升级：新增物流价格下限字段"""
     conn, c = get_db()
@@ -435,6 +454,7 @@ def init_db():
     _upgrade_old_volume_battery()
     _upgrade_logistics_new_fields()
     _upgrade_products_cylinder_length()
+    _upgrade_products_new_fields()
     _upgrade_logistics_price_min()
     # 3. 初始管理员
     if not verify_user("admin", "admin123"):

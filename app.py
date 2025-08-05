@@ -619,8 +619,6 @@ def calculate_pricing(
 
 def main():
     st.set_page_config(page_title="物流定价系统", page_icon="📦", layout="wide")
-    st.sidebar.subheader("调试信息")
-    st.session_state.debug_mode = st.sidebar.checkbox("启用调试模式", False)
     init_db()
     if "user" not in st.session_state:
         st.session_state.user = None
@@ -641,7 +639,11 @@ def main():
         pricing_calculator_page()
     elif selected_page == "用户管理":
         user_management_page()
-    if st.sidebar.button("退出登录", key="logout"):
+
+    # 添加分隔线和退出登录按钮
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 退出登录", key="logout",
+                         help="点击退出当前用户登录"):
         st.session_state.user = None
         st.session_state.pop("products_data", None)
         st.session_state.pop("logistics_data", None)

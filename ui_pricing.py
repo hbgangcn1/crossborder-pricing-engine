@@ -372,74 +372,6 @@ def pricing_calculator_page():
         else:
             st.info("无可用空运数据")
 
-    with st.expander("定价明细分析"):
-        cost_data = pd.DataFrame(
-            {
-                "项目": [
-                    "产品单价",
-                    "发货方运费",
-                    "代贴单费用",
-                    "陆运运费",
-                    "空运运费",
-                ],
-                "金额(元)": [
-                    product_dict["unit_price"],
-                    product_dict["shipping_fee"],
-                    product_dict["labeling_fee"],
-                    land_cost if land_cost is not None else 0,
-                    air_cost if air_cost is not None else 0,
-                ],
-            }
-        )
-        st.dataframe(cost_data)
-
-        fee_data = pd.DataFrame(
-            {
-                "费用类型": ["活动折扣", "推广费用", "佣金", "提现费", "支付手续费"],
-                "费率": [
-                    f"{product_dict['promotion_discount'] * 100:.1f}%",
-                    f"{product_dict['promotion_cost_rate'] * 100:.1f}%",
-                    f"{product_dict['commission_rate'] * 100:.1f}%",
-                    f"{product_dict['withdrawal_fee_rate'] * 100:.1f}%",
-                    f"{product_dict['payment_processing_fee'] * 100:.1f}%",
-                ],
-            }
-        )
-        st.dataframe(fee_data)
-
-        profit_rows = []
-        for name, price, cost in (
-            ("陆运", land_price, land_cost),
-            ("空运", air_price, air_cost),
-        ):
-            if price is not None and cost is not None:
-                total = (
-                    product_dict["unit_price"]
-                    + cost
-                    + product_dict["shipping_fee"]
-                    + product_dict["labeling_fee"]
-                )
-                margin = (price - total) / price
-                profit_rows.append(
-                    {
-                        "物流类型": name,
-                        "总成本(元)": total,
-                        "销售价格(元)": price,
-                        "利润(元)": price - total,
-                        "利润率": f"{margin * 100:.2f}%",
-                    }
-                )
-                min_margin = product_dict.get('min_profit_margin', 0.3) * 100
-                if margin < product_dict.get("min_profit_margin", 0.3):
-                    st.warning(
-                        f"⚠️ {name}利润率低于 {min_margin:.1f}%"
-                    )
-
-        if profit_rows:
-            st.dataframe(pd.DataFrame(profit_rows))
-        else:
-            st.info("暂无可用定价结果")
-
     # 物流淘汰原因
     with st.expander("物流淘汰原因"):
         for log in land_logistics + air_logistics:
@@ -456,26 +388,16 @@ def pricing_calculator_page():
                         f"可用"
                     )
 
-    # 展示所有物流的运费和详细计算过程
-    with st.expander("所有物流运费及计算过程（调试）"):
-        for item in all_costs_debug:
-            log = item["logistic"]
-            if log is not None:
-                st.write(
-                    f"物流：{log.get('name', '未知')}（{log.get('type', '未知')}），"
-                    f"运费：{item['cost']}"
-                )
-                for line in item["debug"]:
-                    st.write(line)
-                st.markdown("---")
-
-    # 展示最终定价的详细计算过程
-    with st.expander("最终定价计算过程（调试）"):
-        if land_name and land_debug:
-            st.write(f"陆运【{land_name}】定价过程：")
-            for line in land_debug:
-                st.write(line)
-        if air_name and air_debug:
-            st.write(f"空运【{air_name}】定价过程：")
-            for line in air_debug:
-                st.write(line)
+    # 展示所有物流的运费和详细计算过程（仅管理员可见）
+    if st.session_state.user["role"] == "admin":
+        with st.expander("所有物流运费及计算过程（调试）"):
+            for item in all_costs_debug:
+                log = item["logistic"]
+                if log is not None:
+                    st.write(
+                        f"物流：{log.get('name', '未知')}（{log.get('type', '未知')}），"
+                        f"运费：{item['cost']}"
+                    )
+                    for line in item["debug"]:
+                        st.write(line)
+                    st.markdown("---")

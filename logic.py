@@ -378,7 +378,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                     debug_info.append("低于价格下限，跳过")
                     continue
 
-            res.append((log, cost))
+                res.append((log, cost))
         return res
     land_candidates = _cost_and_filter(land_logistics)
     air_candidates = _cost_and_filter(air_logistics)

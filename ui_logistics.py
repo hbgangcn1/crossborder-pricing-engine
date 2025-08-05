@@ -446,7 +446,7 @@ def logistics_page():
                         st.rerun()
         else:
             st.info("暂无空运数据")
-    
+
     # 删除确认对话框
     if st.session_state.get("delete_confirm_logistic_id"):
         st.warning("确定要删除这个物流规则吗？")

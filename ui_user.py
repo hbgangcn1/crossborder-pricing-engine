@@ -72,39 +72,17 @@ def user_management_page():
 
 
 def login_or_register_page():
-    """登录/注册页面"""
-    st.title("物流定价系统 - 登录 / 注册")
-    tab_login, tab_register = st.tabs(["登录", "注册"])
-    # 登录
-    with tab_login:
-        with st.form("login_form"):
-            identifier = st.text_input("用户名或邮箱")
-            pwd = st.text_input("密码", type="password")
-            submitted = st.form_submit_button("登录")
-            if submitted:
-                from db_utils import verify_user
-                user = verify_user(identifier, pwd)
-                if user:
-                    st.session_state.user = user
-                    st.rerun()
-                else:
-                    st.error("用户名/邮箱或密码错误")
-    # 注册
-    with tab_register:
-        with st.form("register_form"):
-            username = st.text_input("用户名")
-            email = st.text_input("邮箱")
-            pwd1 = st.text_input("密码", type="password")
-            pwd2 = st.text_input("确认密码", type="password")
-            submitted = st.form_submit_button("注册")
-            if submitted:
-                import re
-                from db_utils import create_user
-                if pwd1 != pwd2:
-                    st.error("两次密码不一致")
-                elif not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-                    st.error("邮箱格式不正确")
-                elif create_user(username, pwd1, role="user", email=email):
-                    st.success("注册成功，请登录")
-                else:
-                    st.error("用户名或邮箱已注册")
+    """登录页面"""
+    st.title("物流定价系统 - 登录")
+    with st.form("login_form"):
+        identifier = st.text_input("用户名或邮箱")
+        pwd = st.text_input("密码", type="password")
+        submitted = st.form_submit_button("登录")
+        if submitted:
+            from db_utils import verify_user
+            user = verify_user(identifier, pwd)
+            if user:
+                st.session_state.user = user
+                st.rerun()
+            else:
+                st.error("用户名/邮箱或密码错误")
