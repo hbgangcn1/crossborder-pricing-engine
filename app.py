@@ -1,3 +1,4 @@
+# noinspection PyUnreachableCode
 import hashlib
 import math
 import os
@@ -617,20 +618,17 @@ def calculate_pricing(
     )
 
 
-def main():
-    st.set_page_config(page_title="物流定价系统", page_icon="📦", layout="wide")
-    init_db()
-    if "user" not in st.session_state:
-        st.session_state.user = None
-    if st.session_state.user is None:
-        login_or_register_page()
-        return
-    st.sidebar.title(f"欢迎, {st.session_state.user['username']}")
-    st.sidebar.subheader(f"角色: {st.session_state.user['role']}")
+def show_main_interface():
+    """显示主界面"""
+    from typing import Dict, Any
+    current_user: Dict[str, Any] = st.session_state.user
+    st.sidebar.title(f"欢迎, {current_user['username']}")
+    st.sidebar.subheader(f"角色: {current_user['role']}")
     menu_options = ["产品管理", "物流规则", "定价计算器"]
-    if st.session_state.user["role"] == "admin":
+    if current_user["role"] == "admin":
         menu_options.append("用户管理")
     selected_page = st.sidebar.selectbox("导航", menu_options)
+
     if selected_page == "产品管理":
         products_page()
     elif selected_page == "物流规则":
@@ -648,6 +646,22 @@ def main():
         st.session_state.pop("products_data", None)
         st.session_state.pop("logistics_data", None)
         st.rerun()
+
+
+def main():
+    st.set_page_config(page_title="物流定价系统", page_icon="📦", layout="wide")
+    init_db()
+    if "user" not in st.session_state:
+        st.session_state.user = None
+
+    # 显式检查用户登录状态，避免PyCharm静态分析警告
+    user_is_logged_in = st.session_state.user is not None
+
+    if not user_is_logged_in:
+        login_or_register_page()
+
+    if user_is_logged_in:  # noinspection PyUnreachableCode
+        show_main_interface()
 
 
 def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
