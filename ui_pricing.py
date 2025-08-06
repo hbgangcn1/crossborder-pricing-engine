@@ -176,41 +176,43 @@ def pricing_calculator_page():
             st.info("无可用空运")
 
     # ---- 计算平均运费和时效 ----
-    # 计算所有真正可用的陆运平均运费和时效（通过所有检查，包括价格限制）
+    # 从all_costs_debug中筛选出真正可用的物流（通过所有检查的物流）
     available_land_costs = []
     available_land_times = []
-    for item in all_costs_debug:
-        log = item["logistic"]
-        cost = item["cost"]
-        debug_info = item["debug"]
-
-        # 检查是否真正可用（通过所有检查）
-        if (cost is not None and log.get("type") == "land" and
-                not any("超价格上限" in line or "低于价格下限" in line
-                        for line in debug_info)):
-            available_land_costs.append(cost)
-            min_days = log.get("min_days", 0)
-            max_days = log.get("max_days", 0)
-            avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
-            available_land_times.append(avg_time)
-
-    # 计算所有真正可用的空运平均运费和时效（通过所有检查，包括价格限制）
     available_air_costs = []
     available_air_times = []
+    
+    # 从all_costs_debug中筛选出真正可用的物流
     for item in all_costs_debug:
         log = item["logistic"]
         cost = item["cost"]
         debug_info = item["debug"]
-
-        # 检查是否真正可用（通过所有检查）
-        if (cost is not None and log.get("type") == "air" and
-                not any("超价格上限" in line or "低于价格下限" in line
-                        for line in debug_info)):
-            available_air_costs.append(cost)
-            min_days = log.get("min_days", 0)
-            max_days = log.get("max_days", 0)
-            avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
-            available_air_times.append(avg_time)
+        
+        # 检查是否真正可用（通过所有检查，没有被淘汰）
+        if cost is not None:
+            # 检查是否因为任何原因被淘汰
+            is_eliminated = any(
+                "不满足重量限制" in line or 
+                "超价格上限" in line or 
+                "低于价格下限" in line or
+                "超尺寸限制" in line or
+                "不满足尺寸限制" in line or
+                "返回 None" in line or
+                "跳过" in line
+                for line in debug_info
+            )
+            
+            if not is_eliminated:
+                min_days = log.get("min_days", 0)
+                max_days = log.get("max_days", 0)
+                avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
+                
+                if log.get("type") == "land":
+                    available_land_costs.append(cost)
+                    available_land_times.append(avg_time)
+                elif log.get("type") == "air":
+                    available_air_costs.append(cost)
+                    available_air_times.append(avg_time)
 
     # 显示平均运费和时效信息
     st.divider()
@@ -250,6 +252,22 @@ def pricing_calculator_page():
                     time_saving = avg_land_time - best_land_time
                     time_saving_text = f"{time_saving:.1f}天"
 
+                # 根据优先级类型调整显示标签
+                if priority == "速度优先":
+                    cost_label = "运费差异"
+                    cost_color = "#d9534f" if cost_saving < 0 else "#28a745"
+                    time_label = "时效节省"
+                    time_color = "#28a745"
+                else:  # 低价优先
+                    cost_label = "运费节省"
+                    cost_color = "#28a745"
+                    time_label = "时效差异"
+                    # 确保time_saving已定义
+                    if 'time_saving' in locals():
+                        time_color = "#d9534f" if time_saving < 0 else "#28a745"
+                    else:
+                        time_color = "#28a745"
+                
                 st.markdown(
                     f"""
                     <div style="font-size:18px; margin-bottom:8px;">
@@ -260,7 +278,7 @@ def pricing_calculator_page():
                         ¥{avg_land_cost:.2f}</span>
                     </div>
                     <div style="font-size:16px; margin-bottom:4px;">
-                        节省运费：<span style="color:#28a745;">
+                        {cost_label}：<span style="color:{cost_color};">
                         {cost_saving:.1f}%</span>
                     </div>
                     <div style="font-size:16px; margin-bottom:4px;">
@@ -268,7 +286,7 @@ def pricing_calculator_page():
                         {avg_land_time:.1f}天</span>
                     </div>
                     <div style="font-size:16px;">
-                        时效节省：<span style="color:#28a745;">
+                        {time_label}：<span style="color:{time_color};">
                         {time_saving_text}</span>
                     </div>
                     """,
@@ -328,6 +346,22 @@ def pricing_calculator_page():
                     time_saving = avg_air_time - best_air_time
                     time_saving_text = f"{time_saving:.1f}天"
 
+                # 根据优先级类型调整显示标签
+                if priority == "速度优先":
+                    cost_label = "运费差异"
+                    cost_color = "#d9534f" if cost_saving < 0 else "#28a745"
+                    time_label = "时效节省"
+                    time_color = "#28a745"
+                else:  # 低价优先
+                    cost_label = "运费节省"
+                    cost_color = "#28a745"
+                    time_label = "时效差异"
+                    # 确保time_saving已定义
+                    if 'time_saving' in locals():
+                        time_color = "#d9534f" if time_saving < 0 else "#28a745"
+                    else:
+                        time_color = "#28a745"
+                
                 st.markdown(
                     f"""
                     <div style="font-size:18px; margin-bottom:8px;">
@@ -338,7 +372,7 @@ def pricing_calculator_page():
                         ¥{avg_air_cost:.2f}</span>
                     </div>
                     <div style="font-size:16px; margin-bottom:4px;">
-                        节省运费：<span style="color:#28a745;">
+                        {cost_label}：<span style="color:{cost_color};">
                         {cost_saving:.1f}%</span>
                     </div>
                     <div style="font-size:16px; margin-bottom:4px;">
@@ -346,7 +380,7 @@ def pricing_calculator_page():
                         {avg_air_time:.1f}天</span>
                     </div>
                     <div style="font-size:16px;">
-                        时效节省：<span style="color:#28a745;">
+                        {time_label}：<span style="color:{time_color};">
                         {time_saving_text}</span>
                     </div>
                     """,

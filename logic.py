@@ -378,7 +378,8 @@ def calculate_pricing(product, land_logistics, air_logistics,
                     debug_info.append("低于价格下限，跳过")
                     continue
 
-                res.append((log, cost))
+            # 如果通过了所有价格检查，添加到候选列表
+            res.append((log, cost))
         return res
     land_candidates = _cost_and_filter(land_logistics)
     air_candidates = _cost_and_filter(air_logistics)
@@ -389,7 +390,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
             return None, None
 
         if priority_type == "速度优先":
-            # 按优先级组和平均时效排序，相同时按价格排序
+            # 按优先级组排序，然后按运费排序，运费相同时按平均时效排序
             def speed_key(candidate):
                 log = candidate[0]
                 cost = candidate[1]
@@ -402,7 +403,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                     {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
                     .get(priority_group, 4)
                 )
-                return group_priority, avg_time, cost
+                return group_priority, cost, avg_time
 
             return min(candidates, key=speed_key)
         else:  # 低价优先
