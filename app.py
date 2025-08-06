@@ -1,3 +1,4 @@
+# noinspection PyUnreachableCode
 import hashlib
 import math
 import os
@@ -624,15 +625,25 @@ def main():
     init_db()
     if "user" not in st.session_state:
         st.session_state.user = None
-    if st.session_state.user is None:
+
+    # 检查用户登录状态并显示相应界面
+    user_logged_in = st.session_state.user is not None
+
+    if not user_logged_in:
         login_or_register_page()
         return
-    st.sidebar.title(f"欢迎, {st.session_state.user['username']}")
-    st.sidebar.subheader(f"角色: {st.session_state.user['role']}")
+
+    # 用户已登录，显示主界面
+    from typing import Dict, Any
+    user: Dict[str, Any] = st.session_state.user  # type: ignore
+    st.sidebar.title(f"欢迎, {user['username']}")
+    st.sidebar.subheader(f"角色: {user['role']}")
     menu_options = ["产品管理", "物流规则", "定价计算器"]
-    if st.session_state.user["role"] == "admin":
+    if user["role"] == "admin":
         menu_options.append("用户管理")
     selected_page = st.sidebar.selectbox("导航", menu_options)
+
+    # 处理页面路由
     if selected_page == "产品管理":
         products_page()
     elif selected_page == "物流规则":
@@ -640,7 +651,9 @@ def main():
     elif selected_page == "定价计算器":
         pricing_calculator_page()
     elif selected_page == "用户管理":
+        # 只有admin用户才会在menu_options中有此选项
         user_management_page()
+
     if st.sidebar.button("退出登录", key="logout"):
         st.session_state.user = None
         st.session_state.pop("products_data", None)

@@ -79,9 +79,9 @@ def products_page():
                     "电池电压(V)*", min_value=0.0, value=0.0
                 )
                 # 电池容量验证警告
-                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                if battery_capacity_mah > 0 >= battery_voltage:
                     st.warning("请填写电池电压(V)")
-                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                elif battery_voltage > 0 >= battery_capacity_mah:
                     st.warning("请填写电池容量(mAh)")
         col1, col2 = st.columns(2)
         has_msds = col1.checkbox("有MSDS文件")
@@ -130,9 +130,9 @@ def products_page():
                         # 如果填写了Wh但值为0，跳过电池容量限制判断
                         pass
                 elif choice == "填写 mAh + V":
-                    if battery_capacity_mah > 0 and battery_voltage <= 0:
+                    if battery_capacity_mah > 0 >= battery_voltage:
                         required.append(None)
-                    elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                    elif battery_voltage > 0 >= battery_capacity_mah:
                         required.append(None)
                     elif battery_capacity_mah <= 0 and battery_voltage <= 0:
                         # 如果都填了0，跳过电池容量限制判断
@@ -167,9 +167,9 @@ def products_page():
                         # 如果填写了Wh但值为0，跳过电池容量限制判断
                         pass
                 elif choice == "填写 mAh + V":
-                    if battery_capacity_mah > 0 and battery_voltage <= 0:
+                    if battery_capacity_mah > 0 >= battery_voltage:
                         missing_fields.append("电池电压(V)")
-                    elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                    elif battery_voltage > 0 >= battery_capacity_mah:
                         missing_fields.append("电池容量(mAh)")
                     elif battery_capacity_mah <= 0 and battery_voltage <= 0:
                         # 如果都填了0，跳过电池容量限制判断
@@ -374,9 +374,9 @@ def edit_product_form():
                 "电池电压(V)*", min_value=0.0, value=float(vals["battery_voltage"])
             )
             # 电池容量验证警告
-            if battery_capacity_mah > 0 and battery_voltage <= 0:
+            if battery_capacity_mah > 0 >= battery_voltage:
                 st.warning("请填写电池电压(V)")
-            elif battery_voltage > 0 and battery_capacity_mah <= 0:
+            elif battery_voltage > 0 >= battery_capacity_mah:
                 st.warning("请填写电池容量(mAh)")
     col1, col2 = st.columns(2)
     has_msds = col1.checkbox("有MSDS文件", value=bool(vals["has_msds"]))
@@ -431,9 +431,9 @@ def edit_product_form():
                     # 如果填写了Wh但值为0，跳过电池容量限制判断
                     pass
             elif choice == "填写 mAh + V":
-                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                if battery_capacity_mah > 0 >= battery_voltage:
                     required.append(None)
-                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                elif battery_voltage > 0 >= battery_capacity_mah:
                     required.append(None)
                 elif battery_capacity_mah <= 0 and battery_voltage <= 0:
                     # 如果都填了0，跳过电池容量限制判断
@@ -468,9 +468,9 @@ def edit_product_form():
                     # 如果填写了Wh但值为0，跳过电池容量限制判断
                     pass
             elif choice == "填写 mAh + V":
-                if battery_capacity_mah > 0 and battery_voltage <= 0:
+                if battery_capacity_mah > 0 >= battery_voltage:
                     missing_fields.append("电池电压(V)")
-                elif battery_voltage > 0 and battery_capacity_mah <= 0:
+                elif battery_voltage > 0 >= battery_capacity_mah:
                     missing_fields.append("电池容量(mAh)")
                 elif battery_capacity_mah <= 0 and battery_voltage <= 0:
                     # 如果都填了0，跳过电池容量限制判断

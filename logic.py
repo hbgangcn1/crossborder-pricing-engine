@@ -154,7 +154,7 @@ def calculate_logistic_cost(logistic, product, debug=False):
 
         # 标准包装限制检查
         max_sum_of_sides = logistic.get("max_sum_of_sides", 10**9)
-        if max_sum_of_sides > 0 and sum(sides) > max_sum_of_sides:
+        if 0 < max_sum_of_sides < sum(sides):
             debug_info.append("三边和超限，返回 None")
             return (None, debug_info) if debug else None
         if max(sides) > logistic.get("max_longest_side", 10**9):
@@ -316,6 +316,10 @@ def calculate_pricing(product, land_logistics, air_logistics,
 
             # 价格限制检查
             # 获取物流规则的价格限制
+            # 预先获取USD汇率，避免重复导入和调用
+            from exchange_service import get_usd_rate
+            usd_rate = get_usd_rate()
+
             # 根据货币类型读取正确的价格限制值
             log_limit_currency = log.get("price_limit_currency", "RUB")
             if log_limit_currency == "RUB":
@@ -324,8 +328,6 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 # 如果货币是USD，需要从price_limit字段读取（存储的是转换后的CNY值）
                 # 然后转换回USD
                 price_limit_cny = log.get("price_limit") or 0
-                from exchange_service import get_usd_rate
-                usd_rate = get_usd_rate()
                 log_limit_value = (price_limit_cny / usd_rate
                                    if price_limit_cny > 0 else 0)
 
@@ -336,8 +338,6 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 # 如果货币是USD，需要从price_min字段读取（存储的是转换后的CNY值）
                 # 然后转换回USD
                 price_min_cny = log.get("price_min") or 0
-                from exchange_service import get_usd_rate
-                usd_rate = get_usd_rate()
                 log_min_value = (price_min_cny / usd_rate
                                  if price_min_cny > 0 else 0)
 
@@ -584,7 +584,7 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
 
     # 标准包装限制检查
     max_sum = logistic.get("max_sum_of_sides", 10**9)
-    if max_sum > 0 and sum(sides) > max_sum:
+    if 0 < max_sum < sum(sides):
         return f"三边之和 {sum(sides)} cm 超过限制 {max_sum} cm"
     max_long = logistic.get("max_longest_side", 10**9)
     if max(sides) > max_long:
