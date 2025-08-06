@@ -618,15 +618,100 @@ def calculate_pricing(
     )
 
 
+def settings_page():
+    """设置页面"""
+    from db_utils import get_db
+    
+    st.title("⚙️ 设置")
+    
+    # 修改密码功能
+    st.header("🔒 修改密码")
+    
+    with st.form("change_password_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            current_password = st.text_input(
+                "当前密码", 
+                type="password",
+                help="请输入您的当前密码"
+            )
+            
+        with col2:
+            new_password = st.text_input(
+                "新密码", 
+                type="password",
+                help="请输入新密码（至少6位）"
+            )
+            
+        confirm_password = st.text_input(
+            "确认新密码", 
+            type="password",
+            help="请再次输入新密码"
+        )
+        
+        submitted = st.form_submit_button("🔄 修改密码", type="primary")
+        
+        if submitted:
+            # 验证输入
+            if not current_password:
+                st.error("请输入当前密码")
+            elif not new_password:
+                st.error("请输入新密码")
+            elif len(new_password) < 6:
+                st.error("新密码长度至少6位")
+            elif new_password != confirm_password:
+                st.error("两次输入的新密码不一致")
+            else:
+                # 验证当前密码
+                conn, c = get_db()
+                try:
+                    current_user_id = st.session_state.user["id"]
+                    
+                    # 获取当前用户信息
+                    user = c.execute(
+                        "SELECT password FROM users WHERE id = ?",
+                        (current_user_id,)
+                    ).fetchone()
+                    
+                    if not user:
+                        st.error("用户不存在")
+                    else:
+                        # 验证当前密码
+                        current_password_hash = hashlib.sha256(
+                            current_password.encode()).hexdigest()
+                        
+                        if user[0] != current_password_hash:
+                            st.error("当前密码错误")
+                        else:
+                            # 更新密码
+                            new_password_hash = hashlib.sha256(
+                                new_password.encode()).hexdigest()
+                            
+                            c.execute(
+                                "UPDATE users SET password = ? WHERE id = ?",
+                                (new_password_hash, current_user_id)
+                            )
+                            conn.commit()
+                            
+                            st.success("✅ 密码修改成功！")
+                            st.info("建议您重新登录以确保安全")
+                            
+                except Exception as e:
+                    st.error(f"修改密码失败：{str(e)}")
+                finally:
+                    conn.close()
+
+
 def show_main_interface():
     """显示主界面"""
     from typing import Dict, Any
     current_user: Dict[str, Any] = st.session_state.user
     st.sidebar.title(f"欢迎, {current_user['username']}")
     st.sidebar.subheader(f"角色: {current_user['role']}")
-    menu_options = ["产品管理", "物流规则", "定价计算器"]
+    menu_options = ["产品管理", "物流规则", "定价计算器", "设置"]
     if current_user["role"] == "admin":
-        menu_options.append("用户管理")
+        menu_options.insert(-1, "用户管理")
     selected_page = st.sidebar.selectbox("导航", menu_options)
 
     if selected_page == "产品管理":
@@ -637,6 +722,8 @@ def show_main_interface():
         pricing_calculator_page()
     elif selected_page == "用户管理":
         user_management_page()
+    elif selected_page == "设置":
+        settings_page()
 
     # 添加分隔线和退出登录按钮
     st.sidebar.markdown("---")

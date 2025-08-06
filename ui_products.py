@@ -193,7 +193,7 @@ def products_page():
                     "commission_rate, withdrawal_fee_rate, "
                     "payment_processing_fee, cylinder_length) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
-                    "?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         uid,
                         name,
