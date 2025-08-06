@@ -389,7 +389,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
             return None, None
 
         if priority_type == "速度优先":
-            # 按优先级组和平均时效排序，相同时按价格排序
+            # 按优先级组排序，然后按运费排序，运费相同时按平均时效排序
             def speed_key(candidate):
                 log = candidate[0]
                 cost = candidate[1]
@@ -402,7 +402,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                     {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
                     .get(priority_group, 4)
                 )
-                return group_priority, avg_time, cost
+                return group_priority, cost, avg_time
 
             return min(candidates, key=speed_key)
         else:  # 低价优先
