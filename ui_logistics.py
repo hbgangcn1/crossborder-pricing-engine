@@ -11,6 +11,19 @@ def logistics_page():
     conn, c = get_db()
     uid = current_user_id()
 
+    # 美化页面标题
+    st.markdown(
+        """
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <h1 class="main-title">🚚 物流规则管理</h1>
+            <p style="color: #718096; font-size: 1.1rem; margin: 0;">
+                配置物流服务商规则，可灵活更改
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     if st.session_state.get("edit_logistic_id"):
         edit_logistic_form()
         return
@@ -18,8 +31,11 @@ def logistics_page():
     # ------------------------------------------------------------------
     # 添加物流规则（展开/收起）
     # ------------------------------------------------------------------
-    with st.expander("添加物流规则", expanded=True):
-        st.subheader("添加物流规则")
+    with st.expander("➕ 添加物流规则", expanded=True):
+        st.markdown(
+            '<h3 class="sub-title">物流基本信息</h3>',
+            unsafe_allow_html=True
+        )
         name = st.text_input("物流名称*", key="add_name")
         logistic_type = st.selectbox("物流类型*", ["陆运", "空运"], key="add_type")
         min_days = st.number_input(
@@ -52,8 +68,10 @@ def logistics_page():
             base_fee = st.number_input(
                 "基础费用(元)",
                 value=0.0,
+                format="%.2f",
                 key="add_base_fee"
             )
+
             continue_fee = st.number_input(
                 "续重费用(元 / 单位)",
                 value=0.0,
@@ -389,16 +407,44 @@ def logistics_page():
 
     air_query = "SELECT * FROM logistics WHERE type='air' AND user_id = ?"
     air_df = pd.read_sql(air_query, conn, params=(uid,))
+    # 送货方式映射
+    delivery_method_map = {
+        "home_delivery": "送货上门",
+        "pickup_point": "送货到取货点",
+        "unknown": "未知"
+    }
+
     left, right = st.columns(2)
     with left:
         st.write("**陆运**")
         if not land_df.empty:
-            for _, row in land_df.iterrows():
+            for i, (_, row) in enumerate(land_df.iterrows()):
+                delivery_display = delivery_method_map.get(
+                    str(row['delivery_method']), "未知"
+                )
+                base_fee_str = (
+                    f"¥{row['base_fee']:.2f}".rstrip('0').rstrip('.')
+                )
+                continue_fee_str = (
+                    f"¥{row['continue_fee']:.5f}".rstrip('0').rstrip('.')
+                )
+
+                # 特殊物品标识
+                special_items = []
+                if bool(row['allow_battery']):
+                    special_items.append("电")
+                if bool(row['allow_flammable']):
+                    special_items.append("液")
+                special_items_str = (
+                    f" | {' | '.join(special_items)}" if special_items else ""
+                )
+
                 logistics_info = (
-                    f"{row['id']} | {row['name']} | "
+                    f"{i + 1} | {row['name']} | "
                     f"{row['min_days']}-{row['max_days']}天 | "
-                    f"三边和≤{row['max_sum_of_sides']}cm | "
-                    f"最长边≤{row['max_longest_side']}cm"
+                    f"{base_fee_str} | "
+                    f"{continue_fee_str} | "
+                    f"{delivery_display}{special_items_str}"
                 )
                 st.write(logistics_info)
                 col_edit, col_del = st.columns(2)
@@ -421,12 +467,33 @@ def logistics_page():
     with right:
         st.write("**空运**")
         if not air_df.empty:
-            for _, row in air_df.iterrows():
+            for i, (_, row) in enumerate(air_df.iterrows()):
+                delivery_display = delivery_method_map.get(
+                    str(row['delivery_method']), "未知"
+                )
+                base_fee_str = (
+                    f"¥{row['base_fee']:.2f}".rstrip('0').rstrip('.')
+                )
+                continue_fee_str = (
+                    f"¥{row['continue_fee']:.5f}".rstrip('0').rstrip('.')
+                )
+
+                # 特殊物品标识
+                special_items = []
+                if bool(row['allow_battery']):
+                    special_items.append("电")
+                if bool(row['allow_flammable']):
+                    special_items.append("液")
+                special_items_str = (
+                    f" | {' | '.join(special_items)}" if special_items else ""
+                )
+
                 logistics_info = (
-                    f"{row['id']} | {row['name']} | "
+                    f"{i + 1} | {row['name']} | "
                     f"{row['min_days']}-{row['max_days']}天 | "
-                    f"三边和≤{row['max_sum_of_sides']}cm | "
-                    f"最长边≤{row['max_longest_side']}cm"
+                    f"{base_fee_str} | "
+                    f"{continue_fee_str} | "
+                    f"{delivery_display}{special_items_str}"
                 )
                 st.write(logistics_info)
                 col_edit, col_del = st.columns(2)
@@ -529,6 +596,7 @@ def edit_logistic_form():
         base_fee = st.number_input(
             "基础费用(元)",
             value=vals.get("base_fee", 0.0),
+            format="%.2f",
             key=f"base_fee_{lid}"
         )
         first_fee = 0.0
@@ -537,7 +605,7 @@ def edit_logistic_form():
             "续重费用(元 / 单位)",
             value=vals.get("continue_fee", 0.0),
             format="%.5f",
-            key=f"continue_fee_{lid}",
+            key=f"continue_fee_{lid}"
         )
         continue_unit = st.selectbox(
             "续重单位",
@@ -562,7 +630,7 @@ def edit_logistic_form():
             "续重费用(元 / 单位)",
             value=vals.get("continue_fee", 0.0),
             format="%.5f",
-            key=f"continue_fee2_{lid}",
+            key=f"continue_fee2_{lid}"
         )
         continue_unit = st.selectbox(
             "续重单位",
@@ -671,17 +739,25 @@ def edit_logistic_form():
             value=vals.get("longest_side_threshold", 0),
             key=f"longest_side_threshold_{lid}",
         )
+        # 确保默认值不小于最小值
+        default_coefficient = vals.get("volume_coefficient", 5000.0)
+        if default_coefficient < 1.0:
+            default_coefficient = 5000.0
         volume_coefficient = st.number_input(
             "体积重量系数",
             min_value=1.0,
-            value=float(vals.get("volume_coefficient", 5000.0)),
+            value=float(default_coefficient),
             key=f"volume_coefficient_{lid}",
         )
     elif volume_mode == "max_actual_vs_volume":
+        # 确保默认值不小于最小值
+        default_coefficient = vals.get("volume_coefficient", 5000.0)
+        if default_coefficient < 1.0:
+            default_coefficient = 5000.0
         volume_coefficient = st.number_input(
             "体积重量系数",
             min_value=1.0,
-            value=float(vals.get("volume_coefficient", 5000.0)),
+            value=float(default_coefficient),
             key=f"volume_coefficient2_{lid}",
         )
 

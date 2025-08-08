@@ -1,437 +1,560 @@
 import streamlit as st
 import pandas as pd
-import time
+from logic import calculate_pricing
 from db_utils import get_db, current_user_id
-from logic import calculate_pricing, _debug_filter_reason
 
 
 def pricing_calculator_page():
     """定价计算器页面"""
-    st.session_state.t0 = time.time()
-    st.write("页面开始渲染", time.strftime("%H:%M:%S"))
-    st.title("物流定价计算器")
+    # 美化页面标题
+    st.markdown(
+        """
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <h1 class="main-title">💰 定价计算器</h1>
+            <p style="color: #718096; font-size: 1.1rem; margin: 0;">
+                智能计算产品定价，一键筛选最佳物流
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # 显示汇率信息
+    from exchange_service import ExchangeRateService
+
+    # 初始化汇率变量
+    current_rate = 0.0904  # 默认兜底汇率
+
+    try:
+        exchange_service = ExchangeRateService()
+        current_rate = exchange_service.get_exchange_rate()
+        st.sidebar.success(f"当前汇率: 1 CNY = {current_rate:.2f} RUB")
+    except Exception as e:
+        st.sidebar.warning(f"汇率获取失败: {str(e)}")
+        # 使用默认汇率，current_rate已经在上面初始化了
+
     conn, c = get_db()
     uid = current_user_id()
 
-    # ------------- 0. 筛选选项 -------------
-    col1, col2 = st.columns(2)
-    with col1:
-        priority = st.selectbox(
-            "优先级",
-            ["速度优先", "低价优先"],
-            help="速度优先：优先选择时效最快的物流；低价优先：优先选择价格最低的物流"
-        )
-    with col2:
-        delivery_filter = st.radio(
-            "送货方式筛选",
-            ["查看全部", "只看送货上门", "只看送到取货点"],
-            horizontal=True
-        )
-
-    # ------------- 1. 选择产品 -------------
+    # 获取用户的产品列表
     products = pd.read_sql(
-        "SELECT id, name FROM products WHERE user_id = ?", conn, params=(uid,)
+        "SELECT id, name, category FROM products WHERE user_id = ?",
+        conn,
+        params=(uid,),
     )
+
     if products.empty:
         st.warning("请先添加产品")
         return
 
-    product_id = st.selectbox(
-        "选择产品",
-        products["id"],
-        format_func=lambda x: (
-            f"{x} - "
-            f"{products.loc[products['id'] == x, 'name'].values[0]}"
-        ),
-        key="pricing_product_select",
+    # 产品选择
+    st.markdown(
+        '<h3 style="color: #2c3e50; margin-bottom: 20px; font-size: 1.5em; '
+        "font-weight: 600; border-bottom: 2px solid #3498db; "
+        'padding-bottom: 8px;">📦 产品选择</h3>',
+        unsafe_allow_html=True,
     )
 
-    # ------------- 2. 缓存 key -------------
-    cache_key = f"pricing_cache_{uid}_{product_id}"
-    ts_key = f"{cache_key}_ts"
+    selected_product_name = st.selectbox(
+        "选择产品", products["name"].tolist(), key="product_select"
+    )
 
-    # ------------- 3. 直接查询 + 计算 -------------
-    product = c.execute(
-        "SELECT * FROM products WHERE id = ? AND user_id = ?",
-        (product_id, uid)).fetchone()
-    if not product:
-        st.error("产品不存在")
+    if not selected_product_name:
+        st.info("请选择一个产品")
         return
-    product_dict = dict(product)
 
-    # 构建查询条件
-    delivery_conditions = []
-    if delivery_filter == "只看送货上门":
-        delivery_conditions.append("delivery_method = 'home_delivery'")
-    elif delivery_filter == "只看送到取货点":
-        delivery_conditions.append("delivery_method = 'pickup_point'")
-
-    delivery_where = ""
-    if delivery_conditions:
-        delivery_where = " AND " + " AND ".join(delivery_conditions)
-
-    land_logistics = pd.read_sql(
-        f"SELECT * FROM logistics WHERE type='land' AND user_id = ?"
-        f"{delivery_where}",
+    # 获取选中产品的详细信息
+    product = pd.read_sql(
+        "SELECT * FROM products WHERE name = ? AND user_id = ?",
         conn,
-        params=(uid,)).to_dict(orient="records")
-    air_logistics = pd.read_sql(
-        f"SELECT * FROM logistics WHERE type='air' AND user_id = ?"
-        f"{delivery_where}",
-        conn,
-        params=(uid,)).to_dict(orient="records")
+        params=(selected_product_name, uid),
+    ).iloc[0]
 
-    (
-        land_price,
-        air_price,
-        land_cost,
-        air_cost,
-        land_name,
-        air_name,
-        all_costs_debug,
-        land_debug,
-        air_debug,
-    ) = calculate_pricing(
-        product_dict,
-        land_logistics,
-        air_logistics,
-        priority=priority
+    # 物流筛选选项
+    st.markdown(
+        '<h3 style="color: #2c3e50; margin-bottom: 20px; font-size: 1.5em; '
+        "font-weight: 600; border-bottom: 2px solid #3498db; "
+        'padding-bottom: 8px;">🚚 物流筛选</h3>',
+        unsafe_allow_html=True,
     )
 
-    # 写入缓存
-    st.session_state[cache_key] = (
-        product_dict,
-        land_logistics,
-        air_logistics,
-        land_price,
-        air_price,
-        land_cost,
-        air_cost,
-        land_name,
-        air_name,
-    )
-    st.session_state[ts_key] = time.time()
-
-    # ------------- 5. 后续逻辑保持不变 -------------
-
-    # ---- 展示结果 ----
     col1, col2 = st.columns(2)
     with col1:
-        if land_price is not None:
+        priority = st.selectbox(
+            "优先级选择", ["低价优先", "速度优先"], key="priority_select"
+        )
+    with col2:
+        delivery_filter = st.selectbox(
+            "送货方式筛选",
+            ["全部", "送货上门", "送货到取货点"],
+            key="delivery_filter",
+        )
+
+    # 计算按钮
+    if st.button("🚀 开始计算", key="calculate_button"):
+        # 获取物流数据
+        logistics_query = "SELECT * FROM logistics WHERE user_id = ?"
+        logistics_df = pd.read_sql(logistics_query, conn, params=(uid,))
+
+        if logistics_df.empty:
+            st.error("请先添加物流规则")
+            return
+
+        # 应用送货方式筛选
+        if delivery_filter != "全部":
+            delivery_map = {
+                "送货上门": "home_delivery",
+                "送货到取货点": "pickup_point",
+            }
+            delivery_method = delivery_map[delivery_filter]
+            logistics_df = logistics_df[
+                logistics_df["delivery_method"] == delivery_method
+            ]
+
+        if logistics_df.empty:
+            st.error(f"没有符合条件的{delivery_filter}物流规则")
+            return
+
+        # 分离陆运和空运物流
+        land_logistics = logistics_df[logistics_df["type"] == "land"]
+        air_logistics = logistics_df[logistics_df["type"] == "air"]
+
+        # 计算定价
+        pricing_result = calculate_pricing(
+            product, land_logistics, air_logistics, priority
+        )
+
+        # 显示结果
+        st.markdown(
+            '<h3 style="color: #2c3e50; margin-bottom: 20px; '
+            'font-size: 1.5em; font-weight: 600; '
+            'border-bottom: 2px solid #3498db; '
+            'padding-bottom: 8px;">📊 计算结果</h3>',
+            unsafe_allow_html=True,
+        )
+
+        # 产品信息
+        st.markdown(
+            '<h4 style="color: #34495e; margin-bottom: 15px; '
+            'font-size: 1.2em; font-weight: 600;">📦 产品信息</h4>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""
+            <div style="background: linear-gradient(135deg, "
+            "#f8f9fa 0%, #e9ecef 100%); border-radius: 12px; "
+            "padding: 20px; margin: 15px 0; "
+            "border-left: 4px solid #28a745;">
+                <div style="font-size: 1.1em; color: #2c3e50; "
+                "margin-bottom: 8px;">
+                    <strong>产品名称：</strong>{product['name']}
+                </div>
+                <div style="font-size: 1.1em; color: #2c3e50; "
+                "margin-bottom: 8px;">
+                    <strong>产品类别：</strong>{product['category']}
+                </div>
+                <div style="font-size: 1.1em; color: #2c3e50;">
+                    <strong>重量：</strong>{product['weight_g']}g
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # 定价结果 - 合并最佳物流方案
+        st.markdown(
+            '<h4 style="color: #34495e; margin-bottom: 15px; '
+            'font-size: 1.2em; font-weight: 600;">💰 定价结果</h4>',
+            unsafe_allow_html=True,
+        )
+
+        suggested_price = pricing_result["suggested_price"]
+        if suggested_price is not None:
+            col_land, col_air = st.columns(2)
+
+            with col_land:
+                if pricing_result["best_land"]:
+                    best_land = pricing_result["best_land"]
+                    land_cost = pricing_result["land_cost"]
+                    land_cost_display = (
+                        f"¥{land_cost:.2f}"
+                        if land_cost is not None
+                        else "无法计算"
+                    )
+                    # 送货方式映射
+                    delivery_method_map = {
+                        "pickup_point": "送到取货点",
+                        "home_delivery": "送货上门",
+                    }
+                    delivery_method_display = (
+                        delivery_method_map.get(
+                            best_land.get("delivery_method"),
+                            best_land.get("delivery_method", "未知"),
+                        )
+                    )
+                    # 使用logic.py中已计算好的正确值
+                    land_price = pricing_result.get('land_price', 0)
+                    # 为陆运单独计算利润和利润率
+                    if land_price and pricing_result.get('land_cost'):
+                        land_total_cost = (
+                            product['unit_price'] +
+                            product['labeling_fee'] +
+                            product['shipping_fee'] +
+                            pricing_result.get('land_cost', 0) +
+                            15 * current_rate
+                        )
+                        land_profit = (land_total_cost *
+                                       product['target_profit_margin'] /
+                                       (1 - product['target_profit_margin']))
+                        land_profit_margin = (product['target_profit_margin'] *
+                                              100)
+                    else:
+                        land_profit = 0
+                        land_profit_margin = 0
+
+                    # 构建陆运卡片HTML
+                    land_card_html = (
+                        f"<div style='background: linear-gradient(135deg, "
+                        f"#e3f2fd 0%, #bbdefb 100%); border-radius: 12px; "
+                        f"padding: 20px; margin: 10px 0; "
+                        f"border-left: 4px solid #2196f3; "
+                        f"box-shadow: 0 4px 12px rgba(33, 150, 243, 0.15);'>"
+                        f"<div style='font-size: 1.3em; color: #1976d2; "
+                        f"font-weight: 600; margin-bottom: 12px;'>"
+                        f"🚛 最佳陆运</div>"
+                        f"<div style='font-size: 1.4em; color: #e67e22; "
+                        f"font-weight: 700; margin-bottom: 10px; "
+                        f"text-shadow: 1px 1px 2px rgba(0,0,0,0.1);'>"
+                        f"{best_land['name']}</div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"运费：<span style='color: #e74c3c; "
+                        f"font-weight: 600; font-size: 1.1em;'>"
+                        f"{land_cost_display}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"时效：<span style='font-weight: 600;'>"
+                        f"{best_land['min_days']}-"
+                        f"{best_land['max_days']}天</span></div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"送货方式：<span style='font-weight: 600;'>"
+                        f"{delivery_method_display}</span></div>"
+                        f"<hr style='margin: 15px 0; border: none; "
+                        f"border-top: 2px solid rgba(52, 73, 94, 0.2);'>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50; "
+                        f"margin-bottom: 8px;'>"
+                        f"建议售价：<span style='color: #e74c3c; "
+                        f"font-weight: 700; font-size: 1.3em; "
+                        f"text-shadow: 1px 1px 2px rgba(0,0,0,0.1);'>"
+                        f"¥{land_price:.2f}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50; "
+                        f"margin-bottom: 8px;'>"
+                        f"预期利润：<span style='color: #27ae60; "
+                        f"font-weight: 600;'>"
+                        f"¥{land_profit:.2f}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50;'>"
+                        f"利润率：<span style='color: #27ae60; "
+                        f"font-weight: 600;'>"
+                        f"{land_profit_margin:.1f}%</span></div>"
+                        f"</div>"
+                    )
+                    st.markdown(land_card_html, unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        """
+                        <div style="background: linear-gradient(135deg, "
+                        "#f5f5f5 0%, #e0e0e0 100%); border-radius: 12px; "
+                        "padding: 20px; margin: 10px 0; "
+                        "border-left: 4px solid #9e9e9e; text-align: center;">
+                            <div style="font-size: 1.1em; color: #757575;">
+                                暂无陆运方案
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            with col_air:
+                if pricing_result["best_air"]:
+                    best_air = pricing_result["best_air"]
+                    air_cost = pricing_result["air_cost"]
+                    air_cost_display = (
+                        f"¥{air_cost:.2f}"
+                        if air_cost is not None
+                        else "无法计算"
+                    )
+                    # 送货方式映射
+                    delivery_method_map = {
+                        "pickup_point": "送到取货点",
+                        "home_delivery": "送货上门",
+                    }
+                    delivery_method_display = (
+                        delivery_method_map.get(
+                            best_air.get("delivery_method"),
+                            best_air.get("delivery_method", "未知"),
+                        )
+                    )
+                    # 使用logic.py中已计算好的正确值
+                    air_price = pricing_result.get('air_price', 0)
+                    # 为空运单独计算利润和利润率
+                    if air_price and pricing_result.get('air_cost'):
+                        air_total_cost = (
+                            product['unit_price'] +
+                            product['labeling_fee'] +
+                            product['shipping_fee'] +
+                            pricing_result.get('air_cost', 0) +
+                            15 * current_rate
+                        )
+                        air_profit = (air_total_cost *
+                                      product['target_profit_margin'] /
+                                      (1 - product['target_profit_margin']))
+                        air_profit_margin = (product['target_profit_margin'] *
+                                             100)
+                    else:
+                        air_profit = 0
+                        air_profit_margin = 0
+
+                    # 构建空运卡片HTML
+                    air_card_html = (
+                        f"<div style='background: linear-gradient(135deg, "
+                        f"#fff3e0 0%, #ffe0b2 100%); border-radius: 12px; "
+                        f"padding: 20px; margin: 10px 0; "
+                        f"border-left: 4px solid #ff9800; "
+                        f"box-shadow: 0 4px 12px rgba(255, 152, 0, 0.15);'>"
+                        f"<div style='font-size: 1.3em; color: #f57c00; "
+                        f"font-weight: 600; margin-bottom: 12px;'>"
+                        f"✈️ 最佳空运</div>"
+                        f"<div style='font-size: 1.4em; color: #8e44ad; "
+                        f"font-weight: 700; margin-bottom: 10px; "
+                        f"text-shadow: 1px 1px 2px rgba(0,0,0,0.1);'>"
+                        f"{best_air['name']}</div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"运费：<span style='color: #e74c3c; "
+                        f"font-weight: 600; font-size: 1.1em;'>"
+                        f"{air_cost_display}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"时效：<span style='font-weight: 600;'>"
+                        f"{best_air['min_days']}-"
+                        f"{best_air['max_days']}天</span></div>"
+                        f"<div style='font-size: 1.2em; color: #34495e; "
+                        f"margin-bottom: 8px;'>"
+                        f"送货方式：<span style='font-weight: 600;'>"
+                        f"{delivery_method_display}</span></div>"
+                        f"<hr style='margin: 15px 0; border: none; "
+                        f"border-top: 2px solid rgba(52, 73, 94, 0.2);'>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50; "
+                        f"margin-bottom: 8px;'>"
+                        f"建议售价：<span style='color: #e74c3c; "
+                        f"font-weight: 700; font-size: 1.3em; "
+                        f"text-shadow: 1px 1px 2px rgba(0,0,0,0.1);'>"
+                        f"¥{air_price:.2f}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50; "
+                        f"margin-bottom: 8px;'>"
+                        f"预期利润：<span style='color: #27ae60; "
+                        f"font-weight: 600;'>"
+                        f"¥{air_profit:.2f}</span></div>"
+                        f"<div style='font-size: 1.2em; color: #2c3e50;'>"
+                        f"利润率：<span style='color: #27ae60; "
+                        f"font-weight: 600;'>"
+                        f"{air_profit_margin:.1f}%</span></div>"
+                        f"</div>"
+                    )
+                    st.markdown(air_card_html, unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        """
+                        <div style="background: linear-gradient(135deg, "
+                        "#f5f5f5 0%, #e0e0e0 100%); border-radius: 12px; "
+                        "padding: 20px; margin: 10px 0; "
+                        "border-left: 4px solid #9e9e9e; text-align: center;">
+                            <div style="font-size: 1.1em; color: #757575;">
+                                暂无空运方案
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+        else:
             st.markdown(
                 """
-                <div
-                    style="
-                        font-size:24px;
-                        font-weight:bold;
-                        margin-bottom:8px;
-                    "
-                >
-                    最佳陆运：<span style="color:#007acc;">{land_name}</span>
-                </div>
-                <div style="font-size:22px; margin-bottom:4px;">
-                    物流运费：<span style="color:#d9534f;">¥{land_cost:.2f}</span>
-                </div>
-                <div style="font-size:22px;">
-                    产品定价：<span style="color:#28a745;">¥{land_price:.2f}</span>
-                </div>
-                """.format(
-                    land_name=land_name,
-                    land_cost=land_cost,
-                    land_price=land_price,
-                ),
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("无可用陆运")
-
-    with col2:
-        if air_price is not None:
-            st.markdown(
-                f"""
-                <div
-                    style="
-                        font-size:24px;
-                        font-weight:bold;
-                        margin-bottom:8px;
-                    "
-                >
-                    最佳空运：<span style="color:#007acc;">{air_name}</span>
-                </div>
-                <div
-                    style="
-                        font-size:22px;
-                        margin-bottom:4px;
-                    "
-                >
-                    物流运费：<span style="color:#d9534f;">¥{air_cost:.2f}</span>
-                </div>
-                <div style="font-size:22px;">
-                    产品定价：<span style="color:#28a745;">¥{air_price:.2f}</span>
+                <div style="background: linear-gradient(135deg, "
+                "#ffebee 0%, #ffcdd2 100%); border-radius: 12px; "
+                "padding: 20px; margin: 15px 0; "
+                "border-left: 4px solid #f44336;">
+                    <div style="font-size: 1.1em; color: #c62828; "
+                    "text-align: center;">
+                        ⚠️ 无法计算建议售价，请检查物流规则是否满足产品要求
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-        else:
-            st.info("无可用空运")
 
-    # ---- 计算平均运费和时效 ----
-    # 从all_costs_debug中筛选出真正可用的物流（通过所有检查的物流）
-    available_land_costs = []
-    available_land_times = []
-    available_air_costs = []
-    available_air_times = []
-    
-    # 从all_costs_debug中筛选出真正可用的物流
-    for item in all_costs_debug:
-        log = item["logistic"]
-        cost = item["cost"]
-        debug_info = item["debug"]
-        
-        # 检查是否真正可用（通过所有检查，没有被淘汰）
-        if cost is not None:
-            # 检查是否因为任何原因被淘汰
-            is_eliminated = any(
-                "不满足重量限制" in line or 
-                "超价格上限" in line or 
-                "低于价格下限" in line or
-                "超尺寸限制" in line or
-                "不满足尺寸限制" in line or
-                "返回 None" in line or
-                "跳过" in line
-                for line in debug_info
+        # 统计信息
+        if pricing_result["land_stats"] or pricing_result["air_stats"]:
+            col_land_stats, col_air_stats = st.columns(2)
+
+            with col_land_stats:
+                if pricing_result["land_stats"]:
+                    st.markdown(
+                        '<h3 style="color: #667eea; margin-bottom: 15px;">'
+                        '📈 陆运统计</h3>',
+                        unsafe_allow_html=True,
+                    )
+
+                    land_stats = pricing_result["land_stats"]
+                    avg_cost = land_stats["avg_cost"]
+                    avg_cost_display = (
+                        f"¥{avg_cost:.2f}" if avg_cost is not None else "无法计算"
+                    )
+                    st.write(f"平均运费：{avg_cost_display}")
+
+                    # 动态显示节省运费或运费差异
+                    cost_saving = land_stats["cost_saving"]
+                    cost_label = "节省运费" if cost_saving >= 0 else "运费差异"
+                    cost_color = "green" if cost_saving >= 0 else "red"
+                    st.markdown(
+                        f"<span style='color: {cost_color};'>"
+                        f"{cost_label}：{cost_saving:+.1f}%</span>",
+                        unsafe_allow_html=True,
+                    )
+
+                    st.write(f"平均时效：{land_stats['avg_time']:.1f}天")
+
+                    # 动态显示时效节省或时效差异
+                    time_saving = land_stats["time_saving"]
+                    time_label = "时效节省" if time_saving >= 0 else "时效差异"
+                    time_color = "green" if time_saving >= 0 else "red"
+                    st.markdown(
+                        f"<span style='color: {time_color};'>"
+                        f"{time_label}：{time_saving:+.1f}天</span>",
+                        unsafe_allow_html=True,
+                    )
+
+            with col_air_stats:
+                if pricing_result["air_stats"]:
+                    st.markdown(
+                        '<h3 style="color: #667eea; margin-bottom: 15px;">'
+                        '📈 空运统计</h3>',
+                        unsafe_allow_html=True,
+                    )
+
+                    air_stats = pricing_result["air_stats"]
+                    avg_cost = air_stats["avg_cost"]
+                    avg_cost_display = (
+                        f"¥{avg_cost:.2f}" if avg_cost is not None else "无法计算"
+                    )
+                    st.write(f"平均运费：{avg_cost_display}")
+
+                    # 动态显示节省运费或运费差异
+                    cost_saving = air_stats["cost_saving"]
+                    cost_label = "节省运费" if cost_saving >= 0 else "运费差异"
+                    cost_color = "green" if cost_saving >= 0 else "red"
+                    st.markdown(
+                        f"<span style='color: {cost_color};'>"
+                        f"{cost_label}：{cost_saving:+.1f}%</span>",
+                        unsafe_allow_html=True,
+                    )
+
+                    st.write(f"平均时效：{air_stats['avg_time']:.1f}天")
+
+                    # 动态显示时效节省或时效差异
+                    time_saving = air_stats["time_saving"]
+                    time_label = "时效节省" if time_saving >= 0 else "时效差异"
+                    time_color = "green" if time_saving >= 0 else "red"
+                    st.markdown(
+                        f"<span style='color: {time_color};'>"
+                        f"{time_label}：{time_saving:+.1f}天</span>",
+                        unsafe_allow_html=True,
+                    )
+
+        # 物流淘汰原因
+        if pricing_result["all_costs_debug"]:
+            st.markdown(
+                '<h3 style="color: #667eea; margin-bottom: 15px;">'
+                '🔍 物流淘汰原因</h3>',
+                unsafe_allow_html=True,
             )
-            
-            if not is_eliminated:
-                min_days = log.get("min_days", 0)
-                max_days = log.get("max_days", 0)
-                avg_time = (min_days + max_days) / 2 if max_days > 0 else min_days
-                
-                if log.get("type") == "land":
-                    available_land_costs.append(cost)
-                    available_land_times.append(avg_time)
-                elif log.get("type") == "air":
-                    available_air_costs.append(cost)
-                    available_air_times.append(avg_time)
 
-    # 显示平均运费和时效信息
-    st.divider()
-    col1, col2 = st.columns(2)
+            # 统计淘汰原因
+            elimination_reasons = {}
+            total_logistics = len(pricing_result["all_costs_debug"])
+            eliminated_count = 0
 
-    with col1:
-        if available_land_costs:
-            avg_land_cost = (sum(available_land_costs) /
-                             len(available_land_costs))
-            avg_land_time = (sum(available_land_times) /
-                             len(available_land_times))
+            for debug_info in pricing_result["all_costs_debug"]:
+                logistic_name = debug_info["logistic"]["name"]
+                cost = debug_info["cost"]
+                debug_list = debug_info["debug"]
 
-            if land_cost is not None:
-                cost_saving = ((avg_land_cost - land_cost) /
-                               avg_land_cost) * 100
+                if cost is None:
+                    eliminated_count += 1
+                    # 找到淘汰原因
+                    reason = None
+                    for debug_line in debug_list:
+                        if "返回 None" in debug_line:
+                            reason = debug_line.replace(
+                                "返回 None", ""
+                            ).strip()
+                            break
+                        elif "跳过" in debug_line:
+                            # 对于价格限制淘汰的情况
+                            reason = debug_line.strip()
+                            break
 
-                # 计算最佳陆运的时效
-                best_land_time = 0
-                best_land_min_days = 0
-                best_land_max_days = 0
-                for item in all_costs_debug:
-                    log = item["logistic"]
-                    if (log.get("name") == land_name and
-                            log.get("type") == "land"):
-                        best_land_min_days = log.get("min_days", 0)
-                        best_land_max_days = log.get("max_days", 0)
-                        best_land_time = ((best_land_min_days +
-                                           best_land_max_days) / 2
-                                          if best_land_max_days > 0
-                                          else best_land_min_days)
-                        break
-
-                # 检查是否有时效数据
-                if best_land_min_days == 0 and best_land_max_days == 0:
-                    time_saving_text = "该物流未填写时效"
-                else:
-                    time_saving = avg_land_time - best_land_time
-                    time_saving_text = f"{time_saving:.1f}天"
-
-                # 根据优先级类型调整显示标签
-                if priority == "速度优先":
-                    cost_label = "运费差异"
-                    cost_color = "#d9534f" if cost_saving < 0 else "#28a745"
-                    time_label = "时效节省"
-                    time_color = "#28a745"
-                else:  # 低价优先
-                    cost_label = "运费节省"
-                    cost_color = "#28a745"
-                    time_label = "时效差异"
-                    # 确保time_saving已定义
-                    if 'time_saving' in locals():
-                        time_color = "#d9534f" if time_saving < 0 else "#28a745"
+                    if reason:
+                        if reason not in elimination_reasons:
+                            elimination_reasons[reason] = []
+                        elimination_reasons[reason].append(logistic_name)
                     else:
-                        time_color = "#28a745"
-                
-                st.markdown(
-                    f"""
-                    <div style="font-size:18px; margin-bottom:8px;">
-                        <strong>陆运统计：</strong>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均运费：<span style="color:#d9534f;">
-                        ¥{avg_land_cost:.2f}</span>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        {cost_label}：<span style="color:{cost_color};">
-                        {cost_saving:.1f}%</span>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均时效：<span style="color:#007acc;">
-                        {avg_land_time:.1f}天</span>
-                    </div>
-                    <div style="font-size:16px;">
-                        {time_label}：<span style="color:{time_color};">
-                        {time_saving_text}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f"""
-                    <div style="font-size:18px; margin-bottom:8px;">
-                        <strong>陆运统计：</strong>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均运费：<span style="color:#d9534f;">
-                        ¥{avg_land_cost:.2f}</span>
-                    </div>
-                    <div style="font-size:16px;">
-                        平均时效：<span style="color:#007acc;">
-                        {avg_land_time:.1f}天</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.info("无可用陆运数据")
+                        # 如果没有找到明确的原因，使用最后一个调试信息
+                        if debug_list:
+                            reason = debug_list[-1].strip()
+                            if reason not in elimination_reasons:
+                                elimination_reasons[reason] = []
+                            elimination_reasons[reason].append(logistic_name)
 
-    with col2:
-        if available_air_costs:
-            avg_air_cost = (sum(available_air_costs) /
-                            len(available_air_costs))
-            avg_air_time = (sum(available_air_times) /
-                            len(available_air_times))
+            # 显示统计信息
+            st.write(f"**总计物流规则：{total_logistics} 个**")
+            st.write(f"**被淘汰物流：{eliminated_count} 个**")
+            st.write(f"**可用物流：{total_logistics - eliminated_count} 个**")
 
-            if air_cost is not None:
-                cost_saving = ((avg_air_cost - air_cost) /
-                               avg_air_cost) * 100
-
-                # 计算最佳空运的时效
-                best_air_time = 0
-                best_air_min_days = 0
-                best_air_max_days = 0
-                for item in all_costs_debug:
-                    log = item["logistic"]
-                    if (log.get("name") == air_name and
-                            log.get("type") == "air"):
-                        best_air_min_days = log.get("min_days", 0)
-                        best_air_max_days = log.get("max_days", 0)
-                        best_air_time = ((best_air_min_days +
-                                          best_air_max_days) / 2
-                                         if best_air_max_days > 0
-                                         else best_air_min_days)
-                        break
-
-                # 检查是否有时效数据
-                if best_air_min_days == 0 and best_air_max_days == 0:
-                    time_saving_text = "该物流未填写时效"
-                else:
-                    time_saving = avg_air_time - best_air_time
-                    time_saving_text = f"{time_saving:.1f}天"
-
-                # 根据优先级类型调整显示标签
-                if priority == "速度优先":
-                    cost_label = "运费差异"
-                    cost_color = "#d9534f" if cost_saving < 0 else "#28a745"
-                    time_label = "时效节省"
-                    time_color = "#28a745"
-                else:  # 低价优先
-                    cost_label = "运费节省"
-                    cost_color = "#28a745"
-                    time_label = "时效差异"
-                    # 确保time_saving已定义
-                    if 'time_saving' in locals():
-                        time_color = "#d9534f" if time_saving < 0 else "#28a745"
-                    else:
-                        time_color = "#28a745"
-                
-                st.markdown(
-                    f"""
-                    <div style="font-size:18px; margin-bottom:8px;">
-                        <strong>空运统计：</strong>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均运费：<span style="color:#d9534f;">
-                        ¥{avg_air_cost:.2f}</span>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        {cost_label}：<span style="color:{cost_color};">
-                        {cost_saving:.1f}%</span>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均时效：<span style="color:#007acc;">
-                        {avg_air_time:.1f}天</span>
-                    </div>
-                    <div style="font-size:16px;">
-                        {time_label}：<span style="color:{time_color};">
-                        {time_saving_text}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f"""
-                    <div style="font-size:18px; margin-bottom:8px;">
-                        <strong>空运统计：</strong>
-                    </div>
-                    <div style="font-size:16px; margin-bottom:4px;">
-                        平均运费：<span style="color:#d9534f;">
-                        ¥{avg_air_cost:.2f}</span>
-                    </div>
-                    <div style="font-size:16px;">
-                        平均时效：<span style="color:#007acc;">
-                        {avg_air_time:.1f}天</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.info("无可用空运数据")
-
-    # 物流淘汰原因
-    with st.expander("物流淘汰原因"):
-        for log in land_logistics + air_logistics:
-            if log is not None:
-                reason = _debug_filter_reason(log, product_dict)
-                if reason:
-                    st.write(
-                        f"❌ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                        f"被淘汰：{reason}"
+            # 显示淘汰原因详情
+            if elimination_reasons:
+                st.markdown("**淘汰原因统计：**")
+                for reason, logistics in elimination_reasons.items():
+                    html_content = (
+                        f"<div style='margin: 10px 0; padding: 10px; "
+                        f"background: rgba(255, 193, 7, 0.1); "
+                        f"border-left: 4px solid #ffc107; "
+                        f"border-radius: 4px;'>"
+                        f"<strong>原因：</strong>{reason}<br>"
+                        f"<strong>影响物流：</strong>{len(logistics)} 个<br>"
+                        f"<strong>物流名称：</strong>"
+                        f"{', '.join(logistics)}</div>"
                     )
-                else:
-                    st.write(
-                        f"✅ {log.get('name', '未知')}（{log.get('type', '未知')}）"
-                        f"可用"
+                    st.markdown(html_content, unsafe_allow_html=True)
+
+            # 展开详细调试信息
+            with st.expander("📋 查看详细调试信息"):
+                for debug_info in pricing_result["all_costs_debug"]:
+                    logistic_name = debug_info["logistic"]["name"]
+                    cost = debug_info["cost"]
+                    debug_list = debug_info["debug"]
+
+                    status = "✅ 可用" if cost is not None else "❌ 被淘汰"
+                    cost_display = (
+                        f"¥{cost:.2f}" if cost is not None else "无法计算"
                     )
 
-    # 展示所有物流的运费和详细计算过程（仅管理员可见）
-    if st.session_state.user["role"] == "admin":
-        with st.expander("所有物流运费及计算过程（调试）"):
-            for item in all_costs_debug:
-                log = item["logistic"]
-                if log is not None:
-                    st.write(
-                        f"物流：{log.get('name', '未知')}（{log.get('type', '未知')}），"
-                        f"运费：{item['cost']}"
+                    st.markdown(
+                        f"**{logistic_name}** - {status} - 运费：{cost_display}"
                     )
-                    for line in item["debug"]:
-                        st.write(line)
+
+                    if debug_list:
+                        for debug_line in debug_list:
+                            st.text(f"  {debug_line}")
+
                     st.markdown("---")

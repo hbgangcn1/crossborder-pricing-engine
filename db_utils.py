@@ -98,7 +98,7 @@ def _upgrade_max_size_to_sides(table: str):
             min_weight, max_weight,
             max_sum_of_sides, max_longest_side,
             volume_mode, longest_side_threshold,
-            allow_battery, allow_flammable
+            volume_coefficient, allow_battery, allow_flammable
         )
         SELECT
             user_id, name, type, min_days, max_days, price_limit,
@@ -106,7 +106,7 @@ def _upgrade_max_size_to_sides(table: str):
             min_weight, max_weight,
             COALESCE(max_size, 0), COALESCE(max_size, 0),
             volume_mode, longest_side_threshold,
-            allow_battery, allow_flammable
+            5000, allow_battery, allow_flammable
         FROM logistics_old
         """
     )
@@ -156,7 +156,7 @@ def _upgrade_table_user_id(table: str):
                 min_weight, max_weight,
                 max_sum_of_sides, max_longest_side,
                 volume_mode, longest_side_threshold,
-                allow_battery, allow_flammable
+                volume_coefficient, allow_battery, allow_flammable
             )
             SELECT
                 (SELECT id FROM users WHERE role='admin' LIMIT 1),
@@ -165,7 +165,7 @@ def _upgrade_table_user_id(table: str):
                 min_weight, max_weight,
                 COALESCE(max_size, 0), COALESCE(max_size, 0),
                 volume_mode, longest_side_threshold,
-                allow_battery, allow_flammable
+                5000, allow_battery, allow_flammable
             FROM logistics_old
             """
         )
@@ -315,6 +315,8 @@ def _upgrade_logistics_price_min():
 
 def create_user(username, password, role="user", email=None):
     """创建用户"""
+    # 确保数据库已初始化
+    init_db()
     conn, c = get_db()
     hashed = hashlib.sha256(password.encode()).hexdigest()
     try:
@@ -331,6 +333,8 @@ def create_user(username, password, role="user", email=None):
 
 def verify_user(identifier, password):
     """验证用户"""
+    # 确保数据库已初始化
+    init_db()
     conn, c = get_db()
     hashed = hashlib.sha256(password.encode()).hexdigest()
     user = c.execute(
@@ -342,7 +346,15 @@ def verify_user(identifier, password):
             hashed,
         ),
     ).fetchone()
-    return dict(user) if user else None
+    if user:
+        return {
+            'id': user[0],
+            'username': user[1],
+            'password': user[2],
+            'role': user[3],
+            'email': user[4]
+        }
+    return None
 
 
 def init_db():
@@ -456,9 +468,19 @@ def init_db():
     _upgrade_products_cylinder_length()
     _upgrade_products_new_fields()
     _upgrade_logistics_price_min()
-    # 3. 初始管理员
-    if not verify_user("admin", "admin123"):
-        create_user("admin", "admin123", "admin")
+    # 3. 初始管理员（避免递归调用）
+    admin_user = c.execute(
+        "SELECT * FROM users WHERE username = ?",
+        ("admin",)
+    ).fetchone()
+    if not admin_user:
+        hashed = hashlib.sha256("admin123".encode()).hexdigest()
+        c.execute(
+            "INSERT INTO users (username, password, role, email) "
+            "VALUES (?, ?, ?, ?)",
+            ("admin", hashed, "admin", "admin@example.com")
+        )
+        conn.commit()
 
 
 def calculate_and_update_priority_groups():

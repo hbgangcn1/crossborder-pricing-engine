@@ -7,60 +7,18 @@ from exchange_service import ExchangeRateService
 def calculate_logistic_cost(logistic, product, debug=False):
     """计算物流成本"""
     debug_info = []
-    # 计算体积重量
-    length_cm = product.get("length_cm", 0)
-    width_cm = product.get("width_cm", 0)
-    height_cm = product.get("height_cm", 0)
+
+    # 获取体积重量计算参数
     volume_mode = logistic.get("volume_mode", "none")
     volume_coefficient = logistic.get("volume_coefficient", 5000)
     debug_info.append(f"体积重量模式: {volume_mode}, 系数: {volume_coefficient}")
-    if volume_mode == "max_actual_vs_volume":
-        volume_weight = (
-            length_cm * width_cm * height_cm
-        ) / volume_coefficient
-        actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
-        calculated_weight = (
-            max(actual_weight, volume_weight) * 1000
-        )  # 转换回克
-        debug_info.append(
-            f"实际重量: {actual_weight * 1000:.2f}g, "
-            f"体积重量: {volume_weight * 1000:.2f}g, "
-            f"计费重量: {calculated_weight:.2f}g"
-        )
-    elif volume_mode == "longest_side":
-        longest_side_threshold = logistic.get("longest_side_threshold", 0)
-        longest_side = max(length_cm, width_cm, height_cm)
-        debug_info.append(
-            f"最长边: {longest_side}cm, 阈值: {longest_side_threshold}cm"
-        )
-        if longest_side > longest_side_threshold:
-            volume_weight = (
-                length_cm * width_cm * height_cm
-            ) / volume_coefficient
-            actual_weight = product.get("weight_g", 0) / 1000  # 转换为千克
-            calculated_weight = (
-                max(actual_weight, volume_weight) * 1000
-            )  # 转换回克
-            debug_info.append(
-                f"最长边超过阈值，启用体积重量计费: "
-                f"实际重量: {actual_weight * 1000:.2f}g, "
-                f"体积重量: {volume_weight * 1000:.2f}g, "
-                f"计费重量: {calculated_weight:.2f}g"
-            )
-        else:
-            calculated_weight = product.get("weight_g", 0)
-            debug_info.append(
-                f"最长边未超过阈值，使用实际重量: {calculated_weight}g"
-            )
-    else:
-        calculated_weight = product.get("weight_g", 0)
-        debug_info.append(f"实际重量: {calculated_weight}g（未启用体积重量）")
-    # 基础限制
-    w = calculated_weight
+
+    # 基础限制检查
+    actual_weight = product.get("weight_g", 0)
     min_w = logistic.get("min_weight", 0)
     max_w = logistic.get("max_weight", 10**9)
-    debug_info.append(f"重量限制: {min_w}g ~ {max_w}g, 当前: {w}g")
-    if w < min_w or w > max_w:
+    debug_info.append(f"重量限制: {min_w}g ~ {max_w}g, 当前: {actual_weight}g")
+    if actual_weight < min_w or actual_weight > max_w:
         debug_info.append("不满足重量限制，返回 None")
         return (None, debug_info) if debug else None
     try:
@@ -233,6 +191,46 @@ def calculate_logistic_cost(logistic, product, debug=False):
             if logistic.get("require_msds") and not product.get("has_msds"):
                 debug_info.append("要求 MSDS 但产品未提供，返回 None")
                 return (None, debug_info) if debug else None
+
+        # 计算体积重量（在包装尺寸确定之后）
+        if volume_mode == "max_actual_vs_volume":
+            volume_weight = (sides[0] * sides[1] *
+                             sides[2]) / volume_coefficient
+            actual_weight_kg = actual_weight / 1000  # 转换为千克
+            # 转换回克
+            calculated_weight = max(actual_weight_kg, volume_weight) * 1000
+            debug_info.append(
+                f"实际重量: {actual_weight:.2f}g, "
+                f"体积重量: {volume_weight * 1000:.2f}g, "
+                f"计费重量: {calculated_weight:.2f}g"
+            )
+        elif volume_mode == "longest_side":
+            longest_side_threshold = logistic.get("longest_side_threshold", 0)
+            longest_side = max(sides)
+            debug_info.append(
+                f"最长边: {longest_side}cm, 阈值: {longest_side_threshold}cm"
+            )
+            if longest_side > longest_side_threshold:
+                volume_weight = (sides[0] * sides[1] *
+                                 sides[2]) / volume_coefficient
+                actual_weight_kg = actual_weight / 1000  # 转换为千克
+                # 转换回克
+                calculated_weight = max(actual_weight_kg, volume_weight) * 1000
+                debug_info.append(
+                    f"最长边超过阈值，启用体积重量计费: "
+                    f"实际重量: {actual_weight:.2f}g, "
+                    f"体积重量: {volume_weight * 1000:.2f}g, "
+                    f"计费重量: {calculated_weight:.2f}g"
+                )
+            else:
+                calculated_weight = actual_weight
+                debug_info.append(
+                    f"最长边未超过阈值，使用实际重量: {calculated_weight}g"
+                )
+        else:
+            calculated_weight = actual_weight
+            debug_info.append(f"实际重量: {calculated_weight}g（未启用体积重量）")
+
     except Exception as e:
         debug_info.append(f"计算物流成本时出错: {str(e)}")
         if debug:
@@ -277,7 +275,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
     from functools import lru_cache
 
     # 1. 基础数据
-    unit_price = float(product["unit_price"])
+    unit_price = float(product.get("unit_price", 0))
     labeling_fee = float(product["labeling_fee"])
     shipping_fee = float(product["shipping_fee"])
     rate = ExchangeRateService().get_exchange_rate()
@@ -292,11 +290,32 @@ def calculate_pricing(product, land_logistics, air_logistics,
 
     def _cost_and_filter(logistics):
         res = []
-        for log in logistics:
+        # 在函数开始时处理 product，确保它是字典格式
+        if hasattr(product, 'to_dict'):
+            product_dict = product.to_dict()
+        elif isinstance(product, dict):
+            product_dict = product
+        else:
+            # 如果是其他类型，尝试转换为字典
+            if hasattr(product, 'items'):
+                product_dict = dict(product)
+            else:
+                raise ValueError(f"无法将 {type(product)} 类型的 product 转换为字典")
+
+        # 如果物流为空，直接返回空列表
+        if logistics.empty:
+            return res
+
+        for _, log in logistics.iterrows():
+            # 将 pandas Series 转换为字典
+            current_log_dict = (log.to_dict() if hasattr(log, 'to_dict')
+                                else dict(log) if hasattr(log, 'items')
+                                else log)
+
             cost, debug_info = cached_cost(
-                tuple(log.items()), tuple(product.items()))
+                tuple(current_log_dict.items()), tuple(product_dict.items()))
             all_costs_debug.append({
-                "logistic": log,
+                "logistic": current_log_dict,
                 "cost": cost,
                 "debug": debug_info
             })
@@ -306,12 +325,12 @@ def calculate_pricing(product, land_logistics, air_logistics,
             # 粗略估算价格
             rough = (
                 (unit_price + labeling_fee + shipping_fee + 15 * rate + cost) /
-                (1 - product["target_profit_margin"])
+                (1 - product_dict["target_profit_margin"])
             ) / (
-                (1 - product["promotion_cost_rate"]) *
-                (1 - product["commission_rate"]) *
-                (1 - product["withdrawal_fee_rate"]) *
-                (1 - product["payment_processing_fee"])
+                (1 - product_dict["promotion_cost_rate"]) *
+                (1 - product_dict["commission_rate"]) *
+                (1 - product_dict["withdrawal_fee_rate"]) *
+                (1 - product_dict["payment_processing_fee"])
             )
 
             # 价格限制检查
@@ -321,23 +340,25 @@ def calculate_pricing(product, land_logistics, air_logistics,
             usd_rate = get_usd_rate()
 
             # 根据货币类型读取正确的价格限制值
-            log_limit_currency = log.get("price_limit_currency", "RUB")
+            log_limit_currency = current_log_dict.get(
+                "price_limit_currency", "RUB")
             if log_limit_currency == "RUB":
-                log_limit_value = log.get("price_limit_rub") or 0
+                log_limit_value = current_log_dict.get("price_limit_rub") or 0
             else:  # USD
                 # 如果货币是USD，需要从price_limit字段读取（存储的是转换后的CNY值）
                 # 然后转换回USD
-                price_limit_cny = log.get("price_limit") or 0
+                price_limit_cny = current_log_dict.get("price_limit") or 0
                 log_limit_value = (price_limit_cny / usd_rate
                                    if price_limit_cny > 0 else 0)
 
-            log_min_currency = log.get("price_min_currency", "RUB")
+            log_min_currency = current_log_dict.get(
+                "price_min_currency", "RUB")
             if log_min_currency == "RUB":
-                log_min_value = log.get("price_min_rub") or 0
+                log_min_value = current_log_dict.get("price_min_rub") or 0
             else:  # USD
                 # 如果货币是USD，需要从price_min字段读取（存储的是转换后的CNY值）
                 # 然后转换回USD
-                price_min_cny = log.get("price_min") or 0
+                price_min_cny = current_log_dict.get("price_min") or 0
                 log_min_value = (price_min_cny / usd_rate
                                  if price_min_cny > 0 else 0)
 
@@ -379,7 +400,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
                     continue
 
             # 如果通过了所有价格检查，添加到候选列表
-            res.append((log, cost))
+            res.append((current_log_dict, cost))
         return res
     land_candidates = _cost_and_filter(land_logistics)
     air_candidates = _cost_and_filter(air_logistics)
@@ -395,15 +416,16 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 log = candidate[0]
                 cost = candidate[1]
                 priority_group = log.get("priority_group", "D")
-                min_days = log.get("min_days", 0)
-                max_days = log.get("max_days", 0)
-                avg_time = (min_days + max_days) / 2
+                candidate_min_days = log.get("min_days", 0)
+                candidate_max_days = log.get("max_days", 0)
+                candidate_avg_time = (candidate_min_days +
+                                      candidate_max_days) / 2
                 # 优先级组：A=0, B=1, C=2, D=3, E=4（时效为0的物流）
                 group_priority = (
                     {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
                     .get(priority_group, 4)
                 )
-                return group_priority, cost, avg_time
+                return group_priority, cost, candidate_avg_time
 
             return min(candidates, key=speed_key)
         else:  # 低价优先
@@ -412,14 +434,15 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 log = candidate[0]
                 cost = candidate[1]
                 priority_group = log.get("priority_group", "D")
-                min_days = log.get("min_days", 0)
-                max_days = log.get("max_days", 0)
-                avg_time = (min_days + max_days) / 2
+                candidate_min_days = log.get("min_days", 0)
+                candidate_max_days = log.get("max_days", 0)
+                candidate_avg_time = (candidate_min_days +
+                                      candidate_max_days) / 2
                 group_priority = (
                     {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
                     .get(priority_group, 4)
                 )
-                return cost, group_priority, avg_time
+                return cost, group_priority, candidate_avg_time
 
             return min(candidates, key=price_key)
 
@@ -428,7 +451,7 @@ def calculate_pricing(product, land_logistics, air_logistics,
 
     # 5. 最终价格
     def _final_price(cost, debug_list=None):
-        total_cost = (
+        final_total_cost = (
             unit_price +
             labeling_fee +
             shipping_fee +
@@ -442,13 +465,13 @@ def calculate_pricing(product, land_logistics, air_logistics,
             (1 - product["payment_processing_fee"])
         )
         price = round(
-            (total_cost / (1 - product["target_profit_margin"])) /
+            (final_total_cost / (1 - product["target_profit_margin"])) /
             denominator, 2
         )
         if debug_list is not None:
             debug_list.append(
                 "定价公式: (("
-                f"{total_cost:.2f}) / (1 - "
+                f"{final_total_cost:.2f}) / (1 - "
                 f"{product['target_profit_margin']})"
                 ") / "
                 f"{denominator:.4f} = "
@@ -473,20 +496,114 @@ def calculate_pricing(product, land_logistics, air_logistics,
         land_price = None
     air_price = _final_price(air_cost, air_debug) if air_log else None
 
-    return (
-        land_price,
-        air_price,
-        land_cost,
-        air_cost,
-        land_log["name"] if land_log else None,
-        air_log["name"] if air_log else None,
-        all_costs_debug,  # 新增：所有物流的运费和调试信息
-        land_debug,  # 新增：陆运定价调试信息
-        air_debug,  # 新增：空运定价调试信息
-    )
+    # 计算统计信息
+    land_stats = None
+    air_stats = None
+
+    if land_candidates:
+        land_costs = [cost for _, cost in land_candidates]
+        land_times = []
+        for log_dict, _ in land_candidates:
+            stats_min_days = log_dict.get("min_days", 0)
+            stats_max_days = log_dict.get("max_days", 0)
+            stats_avg_time = (stats_min_days + stats_max_days) / 2
+            land_times.append(stats_avg_time)
+
+        avg_land_cost = sum(land_costs) / len(land_costs)
+        avg_land_time = sum(land_times) / len(land_times)
+
+        cost_saving = (
+            (avg_land_cost - land_cost) / avg_land_cost * 100
+        ) if land_cost and avg_land_cost > 0 else 0
+        time_saving = (
+            avg_land_time - (
+                (land_log.get("min_days", 0) + land_log.get("max_days", 0)) / 2
+            )
+        ) if land_log else 0
+
+        land_stats = {
+            "avg_cost": avg_land_cost,
+            "cost_saving": cost_saving,
+            "avg_time": avg_land_time,
+            "time_saving": time_saving
+        }
+
+    if air_candidates:
+        air_costs = [cost for _, cost in air_candidates]
+        air_times = []
+        for log_dict, _ in air_candidates:
+            stats_min_days = log_dict.get("min_days", 0)
+            stats_max_days = log_dict.get("max_days", 0)
+            stats_avg_time = (stats_min_days + stats_max_days) / 2
+            air_times.append(stats_avg_time)
+
+        avg_air_cost = sum(air_costs) / len(air_costs)
+        avg_air_time = sum(air_times) / len(air_times)
+
+        cost_saving = (
+            (avg_air_cost - air_cost) / avg_air_cost * 100
+        ) if air_cost and avg_air_cost > 0 else 0
+        time_saving = (
+            avg_air_time - (
+                (air_log.get("min_days", 0) + air_log.get("max_days", 0)) / 2
+            )
+        ) if air_log else 0
+
+        air_stats = {
+            "avg_cost": avg_air_cost,
+            "cost_saving": cost_saving,
+            "avg_time": avg_air_time,
+            "time_saving": time_saving
+        }
+
+    # 计算建议售价和利润
+    suggested_price = land_price if land_price else air_price
+    if suggested_price:
+        # 根据定价公式计算预期利润
+        # 定价公式：价格 = (总成本 / (1 - 目标利润率)) / 分母
+        # 总成本 = 产品成本 + 贴标费 + 运费 + 物流成本 + 15 * 汇率
+        # 分母 = (1 - 推广费率) * (1 - 佣金率) * (1 - 提现费率) * (1 - 支付处理费率)
+
+        # 实际总成本（不包括各种费率扣除）
+        total_cost = (
+            unit_price + labeling_fee + shipping_fee +
+            (land_cost if land_cost is not None
+             else (air_cost if air_cost is not None else 0)) + 15 * rate
+        )
+
+        # 根据定价公式，价格 = (总成本 / (1 - 目标利润率)) / 分母
+        # 所以：总成本 = 价格 * 分母 * (1 - 目标利润率)
+        # 预期利润 = 总成本 * 目标利润率 / (1 - 目标利润率)
+        # 这是基于总成本的利润率计算
+        expected_profit = (total_cost * product["target_profit_margin"] /
+                           (1 - product["target_profit_margin"]))
+
+        # 利润率 = 预期利润 / 总成本 × 100% = 目标利润率
+        profit_margin = product["target_profit_margin"] * 100
+
+    else:
+        expected_profit = 0
+        profit_margin = 0
+
+    return {
+        "land_price": land_price,
+        "air_price": air_price,
+        "land_cost": land_cost,
+        "air_cost": air_cost,
+        "best_land": land_log,
+        "best_air": air_log,
+        "suggested_price": suggested_price,
+        "expected_profit": expected_profit,
+        "profit_margin": profit_margin,
+        "land_stats": land_stats,
+        "air_stats": air_stats,
+        "all_costs_debug": all_costs_debug,
+        "land_debug": land_debug,
+        "air_debug": air_debug
+    }
 
 
-def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
+def _debug_filter_reason(logistic: dict, product: dict) -> str:
     """检查物流被淘汰的原因"""
     # ---------- 1. 重量 ----------
     # 计算体积重量
@@ -731,4 +848,4 @@ def _debug_filter_reason(logistic: dict, product: dict) -> str | None:
     except Exception as e:
         return f"限价判断异常: {e}"
     # 6. 全部通过
-    return None
+    return ""
