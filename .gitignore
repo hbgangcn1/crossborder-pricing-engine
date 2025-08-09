@@ -64,8 +64,77 @@ tests/README.md
 tests/conftest.py
 requirements_test.txt
 
+# Python 编译文件和缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 测试和覆盖率
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+.cache
+pytest_cache/
+cover/
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 汇率和配置文件
+*.json
+!package.json
+!tsconfig.json
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 项目特定文件
+logistics.code-workspace
+pyrightconfig.json
+
 # 数据库备份和日志文件
 backups/
 logs/
 *.backup
 *.bak
+*.log
+
+# 临时文件和报告
+*.tmp
+*.temp
+.coverage.*
+test_report.html
+TEST_FIX_SUMMARY.md
+TEST_INTEGRATION_SUMMARY.md
+TEST_SUMMARY.md
+PROJECT_ANALYSIS_REPORT.md
