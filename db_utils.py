@@ -483,6 +483,142 @@ def init_db():
         conn.commit()
 
 
+# 产品管理函数
+
+def add_product(product_data):
+    """添加新产品"""
+    conn, c = get_db()
+    
+    # 提取产品数据
+    fields = [
+        'user_id', 'name', 'russian_name', 'category', 'model',
+        'unit_price', 'weight_g', 'length_cm', 'width_cm', 'height_cm',
+        'is_cylinder', 'cylinder_diameter', 'cylinder_length', 'has_battery',
+        'battery_capacity_wh', 'battery_capacity_mah', 'battery_voltage',
+        'has_msds', 'has_flammable', 'shipping_fee', 'labeling_fee',
+        'promotion_discount', 'promotion_cost_rate', 'target_profit_margin',
+        'commission_rate', 'withdrawal_fee_rate', 'payment_processing_fee'
+    ]
+    
+    # 构建SQL语句
+    placeholders = ','.join(['?' for _ in fields])
+    field_names = ','.join(fields)
+    
+    # 获取值
+    values = [product_data.get(field, 0) for field in fields]
+    
+    c.execute(
+        f"INSERT INTO products ({field_names}) VALUES ({placeholders})",
+        values
+    )
+    conn.commit()
+    return c.lastrowid
+
+
+def get_all_products_for_user(user_id):
+    """获取用户的所有产品"""
+    conn, c = get_db()
+    products = c.execute(
+        "SELECT * FROM products WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    return [dict(product) for product in products]
+
+
+def get_product_by_id(product_id, user_id=None):
+    """根据ID获取产品"""
+    conn, c = get_db()
+    if user_id:
+        product = c.execute(
+            "SELECT * FROM products WHERE id = ? AND user_id = ?",
+            (product_id, user_id)
+        ).fetchone()
+    else:
+        product = c.execute(
+            "SELECT * FROM products WHERE id = ?",
+            (product_id,)
+        ).fetchone()
+    return dict(product) if product else None
+
+
+def delete_product(product_id, user_id):
+    """删除产品"""
+    conn, c = get_db()
+    c.execute(
+        "DELETE FROM products WHERE id = ? AND user_id = ?",
+        (product_id, user_id)
+    )
+    conn.commit()
+    return c.rowcount > 0
+
+
+def batch_delete_products(product_ids, user_id):
+    """批量删除产品"""
+    if not product_ids:
+        return 0
+    
+    conn, c = get_db()
+    placeholders = ','.join(['?' for _ in product_ids])
+    params = list(product_ids) + [user_id]
+    
+    c.execute(
+        f"DELETE FROM products WHERE id IN ({placeholders}) AND user_id = ?",
+        params
+    )
+    conn.commit()
+    return c.rowcount
+
+
+def update_product(product_id, user_id, updates):
+    """更新产品信息"""
+    if not updates:
+        return False
+        
+    conn, c = get_db()
+    
+    # 构建UPDATE语句
+    set_clauses = []
+    values = []
+    for field, value in updates.items():
+        set_clauses.append(f"{field} = ?")
+        values.append(value)
+    
+    values.extend([product_id, user_id])
+    
+    c.execute(
+        f"UPDATE products SET {', '.join(set_clauses)} WHERE id = ? AND user_id = ?",
+        values
+    )
+    conn.commit()
+    return c.rowcount > 0
+
+
+def batch_update_pricing_params(product_ids, user_id, pricing_updates):
+    """批量更新产品定价参数"""
+    if not product_ids or not pricing_updates:
+        return 0
+        
+    conn, c = get_db()
+    
+    # 构建UPDATE语句
+    set_clauses = []
+    values = []
+    for field, value in pricing_updates.items():
+        set_clauses.append(f"{field} = ?")
+        values.append(value)
+    
+    placeholders = ','.join(['?' for _ in product_ids])
+    values.extend(list(product_ids))
+    values.append(user_id)
+    
+    c.execute(
+        f"UPDATE products SET {', '.join(set_clauses)} WHERE id IN ({placeholders}) AND user_id = ?",
+        values
+    )
+    conn.commit()
+    return c.rowcount
+
+
 def calculate_and_update_priority_groups():
     """计算并更新物流优先级分组"""
     conn, c = get_db()

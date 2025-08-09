@@ -157,7 +157,8 @@ def test_main_cli(mock_restore, mock_list, mock_create, mocker):
 
     # Test 'list' command
     with patch('sys.argv', ['backup_db.py', 'list']):
-        backup_db.main()
+        with pytest.raises(SystemExit):
+            backup_db.main()
     mock_list.assert_called_once()
 
     # Test 'restore' command
@@ -166,9 +167,10 @@ def test_main_cli(mock_restore, mock_list, mock_create, mocker):
             backup_db.main()
     mock_restore.assert_called_once_with('my_backup.db')
 
-    # Test default command (backup)
+    # Test no command (should show usage)
     mock_create.reset_mock()
     with patch('sys.argv', ['backup_db.py']):
         with pytest.raises(SystemExit):
             backup_db.main()
-    mock_create.assert_called_once()
+    # No command should show usage, not call create_backup
+    mock_create.assert_not_called()

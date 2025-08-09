@@ -201,27 +201,43 @@ def list_backups():
         logger.error(f"列出备份文件时发生错误: {e}")
 
 
-if __name__ == "__main__":
+def main():
+    """命令行入口函数"""
     import sys
     
-    if len(sys.argv) > 1:
-        command = sys.argv[1]
-        
-        if command == "backup":
-            success = create_backup()
-            sys.exit(0 if success else 1)
-        elif command == "list":
-            list_backups()
-        elif command == "restore" and len(sys.argv) > 2:
-            backup_file = sys.argv[2]
-            success = restore_backup(backup_file)
-            sys.exit(0 if success else 1)
-        else:
-            print("用法:")
-            print("  python backup_db.py backup     # 创建备份")
-            print("  python backup_db.py list       # 列出备份")
-            print("  python backup_db.py restore <filename>  # 恢复备份")
-    else:
-        # 默认执行备份
+    if len(sys.argv) < 2:
+        print("用法: python backup_db.py <command>")
+        print("命令:")
+        print("  backup    - 创建备份")
+        print("  list      - 列出所有备份")
+        print("  restore   - 恢复备份 (需要指定文件名)")
+        sys.exit(1)
+    
+    command = sys.argv[1].lower()
+    
+    if command == "backup":
         success = create_backup()
         sys.exit(0 if success else 1)
+    elif command == "list":
+        backups = list_backups()
+        if backups:
+            print("可用的备份文件:")
+            for backup in backups:
+                print(f"  {backup}")
+        else:
+            print("没有找到备份文件")
+        sys.exit(0)
+    elif command == "restore":
+        if len(sys.argv) < 3:
+            print("错误: 请指定要恢复的备份文件名")
+            sys.exit(1)
+        backup_filename = sys.argv[2]
+        success = restore_backup(backup_filename)
+        sys.exit(0 if success else 1)
+    else:
+        print(f"未知命令: {command}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

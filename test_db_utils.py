@@ -188,12 +188,12 @@ def test_update_product(mock_db, product_fixture):
     user_id = product_fixture
     product_to_update_id = db_utils.get_all_products_for_user(user_id)[0]['id']
 
-    update_data = db_utils.get_product_by_id(product_to_update_id, user_id)
-    update_data = dict(update_data) # Convert from sqlite3.Row
-    update_data['name'] = "Updated Product A"
-    update_data['unit_price'] = 123.45
+    update_data = {
+        'name': "Updated Product A",
+        'unit_price': 123.45
+    }
 
-    db_utils.update_product(product_to_update_id, update_data)
+    db_utils.update_product(product_to_update_id, user_id, update_data)
 
     updated_product = db_utils.get_product_by_id(product_to_update_id, user_id)
     assert updated_product['name'] == "Updated Product A"
@@ -212,7 +212,7 @@ def test_batch_update_pricing_params(mock_db, product_fixture):
         "withdrawal_fee_rate": 0.1, "payment_processing_fee": 0.05
     }
 
-    db_utils.batch_update_pricing_params(ids_to_update, params, user_id)
+    db_utils.batch_update_pricing_params(ids_to_update, user_id, params)
 
     # Check one product to see if it was updated
     p = db_utils.get_product_by_id(ids_to_update[0], user_id)
