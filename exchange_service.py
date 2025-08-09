@@ -7,6 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from typing import Any, cast
 
 
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +32,8 @@ class BocProvider(ExchangeRateProvider):
         retry = Retry(total=2, backoff_factor=0.5,
                       status_forcelist=[500, 502, 503, 504],
                       allowed_methods=frozenset(['GET']))
-        self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        adapter = HTTPAdapter(max_retries=cast(Any, retry))
+        self.session.mount("https://", adapter)
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def get_rate(self) -> float:
@@ -131,7 +133,8 @@ class UsdProvider(ExchangeRateProvider):
         retry = Retry(total=2, backoff_factor=0.5,
                       status_forcelist=[500, 502, 503, 504],
                       allowed_methods=frozenset(['GET']))
-        self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        adapter = HTTPAdapter(max_retries=cast(Any, retry))
+        self.session.mount("https://", adapter)
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def get_rate(self) -> float:
