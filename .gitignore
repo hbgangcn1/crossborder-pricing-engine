@@ -142,3 +142,9 @@ PROJECT_IMPROVEMENT_ANALYSIS.md
 BACKUP_README.md
 BACKUP_README.md
 BACKUP_README.md
+
+# 统一忽略：测试套件与所有 Markdown 文档（含 README）
+tests/
+test_*.py
+*_test.py
+*.md
