@@ -1,17 +1,19 @@
-import pytest
 import os
+import sys
 import sqlite3
-from unittest.mock import patch, MagicMock
-from pathlib import Path
 import time
+from unittest.mock import patch, MagicMock
+
+import pytest
 
 # Add the root directory to the Python path
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '.')))
 
 import backup_db
 
 @pytest.fixture
+
 def temp_db_and_backup_dir(tmp_path):
     """Fixture to create a temporary database file and backup directory."""
     db_path = tmp_path / "pricing_system.db"
@@ -146,6 +148,7 @@ def test_list_backups(temp_db_and_backup_dir, mocker):
 @patch('backup_db.create_backup')
 @patch('backup_db.list_backups')
 @patch('backup_db.restore_backup')
+
 def test_main_cli(mock_restore, mock_list, mock_create, mocker):
     """Test the main CLI entry point."""
 

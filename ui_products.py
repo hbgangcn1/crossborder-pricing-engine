@@ -361,6 +361,10 @@ def products_page():
     else:
         st.info("暂无产品数据")
 
+    # 确保数据库连接被关闭
+    if 'conn' in locals():
+        conn.close()
+
 
 def edit_product_form():
     """编辑产品表单"""
@@ -382,12 +386,16 @@ def edit_product_form():
     russian_name = st.text_input("俄文名称", value=vals["russian_name"])
     category = st.text_input("产品类别", value=vals["category"])
     model = st.text_input("型号", value=vals["model"])
+    # 确保价格不低于最小值
+    price_value = max(0.0, float(vals["unit_price"]))
     unit_price = st.number_input(
-        "进货单价（元）*", min_value=0.0, value=float(vals["unit_price"]),
+        "进货单价（元）*", min_value=0.0, value=price_value,
         step=0.01
     )
+    # 确保重量不低于最小值
+    weight_value = max(0.0, float(vals["weight_g"]))
     weight_g = st.number_input(
-        "重量(g)*", min_value=0.0, value=float(vals["weight_g"])
+        "重量(g)*", min_value=0.0, value=weight_value
     )
     shape = st.radio(
         "包装形状",
@@ -405,22 +413,23 @@ def edit_product_form():
     if not is_cylinder:
         col1, col2, col3 = st.columns(3)
         length_cm = col1.number_input(
-            "长(cm)*", min_value=0.0, value=float(vals["length_cm"]))
+            "长(cm)*", min_value=0.0, value=max(0.0, float(vals["length_cm"])))
         width_cm = col2.number_input(
-            "宽(cm)*", min_value=0.0, value=float(vals["width_cm"])
+            "宽(cm)*", min_value=0.0, value=max(0.0, float(vals["width_cm"]))
         )
         height_cm = col3.number_input(
-            "高(cm)*", min_value=0.0, value=float(vals["height_cm"]))
+            "高(cm)*", min_value=0.0, value=max(0.0, float(vals["height_cm"])))
     else:
         # 圆柱形包装尺寸
         col1, col2 = st.columns(2)
         cylinder_diameter = col1.number_input(
-            "圆柱直径(cm)*", min_value=0.0, value=float(vals["cylinder_diameter"])
+            "圆柱直径(cm)*", min_value=0.0,
+            value=max(0.0, float(vals["cylinder_diameter"]))
         )
         cylinder_length = col2.number_input(
             "圆柱长度(cm)*",
             min_value=0.0,
-            value=float(vals.get("cylinder_length", 0.0))
+            value=max(0.0, float(vals.get("cylinder_length", 0.0)))
         )
         # 为圆柱形包装设置默认的长宽高值（用于兼容性）
         length_cm = cylinder_diameter
@@ -442,15 +451,16 @@ def edit_product_form():
             battery_capacity_wh = st.number_input(
                 "电池容量(Wh)*",
                 min_value=0.0,
-                value=float(vals["battery_capacity_wh"]))
+                value=max(0.0, float(vals["battery_capacity_wh"])))
         else:
             col1, col2 = st.columns(2)
             battery_capacity_mah = col1.number_input(
                 "电池容量(mAh)*", min_value=0.0,
-                value=float(vals["battery_capacity_mah"])
+                value=max(0.0, float(vals["battery_capacity_mah"]))
             )
             battery_voltage = col2.number_input(
-                "电池电压(V)*", min_value=0.0, value=float(vals["battery_voltage"])
+                "电池电压(V)*", min_value=0.0,
+                value=max(0.0, float(vals["battery_voltage"]))
             )
             # 电池容量验证警告
             if battery_capacity_mah > 0 >= battery_voltage:
@@ -461,41 +471,41 @@ def edit_product_form():
     has_msds = col1.checkbox("有MSDS文件", value=bool(vals["has_msds"]))
     has_flammable = col2.checkbox("有易燃液体", value=bool(vals["has_flammable"]))
     shipping_fee = col1.number_input(
-        "发货方运费(元)", min_value=0.0, value=float(vals["shipping_fee"])
+        "发货方运费(元)", min_value=0.0, value=max(0.0, float(vals["shipping_fee"]))
     )
     labeling_fee = st.number_input(
-        "代贴单费用(元)", min_value=0.0, value=float(vals["labeling_fee"])
+        "代贴单费用(元)", min_value=0.0, value=max(0.0, float(vals["labeling_fee"]))
     )
     col1, col2 = st.columns(2)
     promotion_discount = col2.number_input(
         "活动折扣率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["promotion_discount"]) * 100.0, step=0.1,
+        value=max(0.0, float(vals["promotion_discount"])) * 100.0, step=0.1,
         format="%.1f"
     ) / 100.0
     promotion_cost_rate = col1.number_input(
         "推广费用率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["promotion_cost_rate"]) * 100.0, step=0.1,
+        value=max(0.0, float(vals["promotion_cost_rate"])) * 100.0, step=0.1,
         format="%.1f"
     ) / 100.0
     target_profit_margin = col1.number_input(
         "目标利润率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["target_profit_margin"]) * 100.0, step=0.1,
+        value=max(0.0, float(vals["target_profit_margin"])) * 100.0, step=0.1,
         format="%.1f"
     ) / 100.0
     commission_rate = col2.number_input(
         "佣金率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["commission_rate"]) * 100.0, step=0.1,
+        value=max(0.0, float(vals["commission_rate"])) * 100.0, step=0.1,
         format="%.1f"
     ) / 100.0
     withdrawal_fee_rate = col1.number_input(
         "提现费率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["withdrawal_fee_rate"]) * 100.0, step=0.1,
+        value=max(0.0, float(vals["withdrawal_fee_rate"])) * 100.0, step=0.1,
         format="%.1f"
     ) / 100.0
     payment_processing_fee = col2.number_input(
         "支付手续费率(%)", min_value=0.0, max_value=100.0,
-        value=float(vals["payment_processing_fee"]) * 100.0, step=0.1,
-        format="%.1f"
+        value=max(0.0, float(vals["payment_processing_fee"])) * 100.0,
+        step=0.1, format="%.1f"
     ) / 100.0
     if st.button("保存修改"):
         required = [name, weight_g, unit_price]
@@ -613,6 +623,10 @@ def edit_product_form():
         del st.session_state.edit_product_id
         st.rerun()
 
+    # 确保数据库连接被关闭
+    if 'conn' in locals():
+        conn.close()
+
 
 def batch_edit_pricing_form():
     """批量编辑产品定价参数表单"""
@@ -660,12 +674,6 @@ def batch_edit_pricing_form():
     col1, col2 = st.columns(2)
 
     with col1:
-        promotion_discount = st.number_input(
-            "活动折扣率(%)", min_value=0.0, max_value=100.0,
-            value=float(avg_params[0] or 0.0) * 100.0, step=0.1,
-            format="%.1f"
-        ) / 100.0
-
         promotion_cost_rate = st.number_input(
             "推广费用率(%)", min_value=0.0, max_value=100.0,
             value=float(avg_params[1] or 0.0) * 100.0, step=0.1,
@@ -678,16 +686,22 @@ def batch_edit_pricing_form():
             format="%.1f"
         ) / 100.0
 
-    with col2:
-        commission_rate = st.number_input(
-            "佣金率(%)", min_value=0.0, max_value=100.0,
-            value=float(avg_params[3] or 0.0) * 100.0, step=0.1,
-            format="%.1f"
-        ) / 100.0
-
         withdrawal_fee_rate = st.number_input(
             "提现费率(%)", min_value=0.0, max_value=100.0,
             value=float(avg_params[4] or 0.0) * 100.0, step=0.1,
+            format="%.1f"
+        ) / 100.0
+
+    with col2:
+        promotion_discount = st.number_input(
+            "活动折扣率(%)", min_value=0.0, max_value=100.0,
+            value=float(avg_params[0] or 0.0) * 100.0, step=0.1,
+            format="%.1f"
+        ) / 100.0
+
+        commission_rate = st.number_input(
+            "佣金率(%)", min_value=0.0, max_value=100.0,
+            value=float(avg_params[3] or 0.0) * 100.0, step=0.1,
             format="%.1f"
         ) / 100.0
 
@@ -744,3 +758,7 @@ def batch_edit_pricing_form():
     if st.button("取消", key="cancel_batch_edit"):
         del st.session_state.batch_edit_products
         st.rerun()
+
+    # 确保数据库连接被关闭
+    if 'conn' in locals():
+        conn.close()

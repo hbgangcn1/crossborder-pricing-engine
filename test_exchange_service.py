@@ -1,19 +1,22 @@
+import json
+import os
+import sys
+import time
+from unittest.mock import patch, MagicMock
+
 import pytest
 import requests
-from unittest.mock import patch, MagicMock
-import json
-import time
-import os
 
 # Add the root directory to the Python path
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(__file__), '.')))
 
 import exchange_service
 
 # --- Provider Tests ---
 
 @patch('requests.Session.get')
+
 def test_boc_provider_success(mock_get):
     """Test BocProvider successful rate fetch."""
     mock_response = MagicMock()
@@ -28,6 +31,7 @@ def test_boc_provider_success(mock_get):
     mock_get.assert_called_once_with("https://api.exchangerate-api.com/v4/latest/RUB", timeout=10)
 
 @patch('requests.Session.get')
+
 def test_boc_provider_failure(mock_get):
     """Test BocProvider handling a request failure."""
     mock_get.side_effect = requests.RequestException("API Error")
@@ -37,6 +41,7 @@ def test_boc_provider_failure(mock_get):
         provider.get_rate()
 
 @patch('requests.Session.get')
+
 def test_usd_provider_success(mock_get):
     """Test UsdProvider successful rate fetch."""
     mock_response = MagicMock()
@@ -62,6 +67,7 @@ def test_fallback_provider():
 
 # To test singletons properly, we need to reset them between tests
 @pytest.fixture(autouse=True)
+
 def reset_singletons():
     """Reset singleton instances before each test."""
     exchange_service.ExchangeRateService._instance = None
@@ -70,6 +76,7 @@ def reset_singletons():
 @patch('threading.Thread')
 @patch('exchange_service.BocProvider.get_rate', return_value=0.123)
 @patch('builtins.open', side_effect=FileNotFoundError) # Mock file not found
+
 def test_exchange_rate_service_api_success(mock_open, mock_get_rate, mock_thread):
     """Test service uses API when fallback file doesn't exist."""
     # The service will be initialized, fail to load from file,
@@ -84,10 +91,10 @@ def test_exchange_rate_service_api_success(mock_open, mock_get_rate, mock_thread
     assert service.get_exchange_rate() == 0.123
     mock_get_rate.assert_called_once()
 
-
 @patch('threading.Thread')
 @patch('exchange_service.BocProvider.get_rate', side_effect=requests.RequestException)
 @patch('builtins.open', side_effect=FileNotFoundError)
+
 def test_exchange_rate_service_full_fallback(mock_open, mock_get_rate, mock_thread):
     """Test service falling back to default when API and file fail."""
     service = exchange_service.ExchangeRateService()
@@ -96,16 +103,17 @@ def test_exchange_rate_service_full_fallback(mock_open, mock_get_rate, mock_thre
 
 @patch('threading.Thread')
 @patch('exchange_service.BocProvider.get_rate')
+
 def test_exchange_rate_service_loads_from_file(mock_get_rate, mock_thread):
     """Test that the service loads the rate from the fallback file."""
     fallback_data = {"rate": 0.150, "ts": time.time() - 1000}
     mock_file_content = json.dumps(fallback_data)
 
-    with patch('builtins.open', MagicMock(read_data=mock_file_content)) as mock_open:
+    with patch('builtins.open', MagicMock(read_data=mock_file_content)):
         # mock_open.return_value.__enter__.return_value.read.return_value = mock_file_content
         # This is complex, let's simplify by patching json.load
         with patch('json.load', return_value=fallback_data):
-             service = exchange_service.ExchangeRateService()
+            service = exchange_service.ExchangeRateService()
 
     assert service.get_exchange_rate() == 0.150
     # API should not have been called as file is fresh enough for init

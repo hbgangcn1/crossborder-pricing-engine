@@ -1,13 +1,12 @@
 import sqlite3
-import pytest
 from unittest.mock import MagicMock, patch
-import os
-import hashlib
-import pandas as pd
+
+import pytest
 
 import db_utils
 
 @pytest.fixture
+
 def mock_db_connection():
     """Fixture to create an in-memory SQLite database for testing."""
     conn = sqlite3.connect(":memory:")
@@ -17,6 +16,7 @@ def mock_db_connection():
     conn.close()
 
 @pytest.fixture
+
 def mock_db(mock_db_connection):
     """Fixture that provides an initialized in-memory database."""
     conn, cursor = mock_db_connection
@@ -26,6 +26,7 @@ def mock_db(mock_db_connection):
         yield conn, cursor
 
 @pytest.fixture
+
 def mock_streamlit(mocker):
     """Fixture to mock streamlit and its session_state."""
     mocker.patch('streamlit.session_state', new_callable=MagicMock)
@@ -54,8 +55,15 @@ def test_create_user(mock_db):
     """Test creating a new user."""
     conn, c = mock_db
 
-    # Patch init_db to avoid recursive calls within the function itself
-    with patch('db_utils.init_db'):
+    # 首先创建必要的表结构
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        db_utils.init_db()  # 确保表存在
         result = db_utils.create_user("testuser", "password123", "user", "test@example.com")
 
     assert result is True
@@ -99,9 +107,21 @@ def test_verify_user(mock_db):
         assert not_found_user is None
 
 @pytest.fixture
+
 def product_fixture(mock_db):
     """Fixture to add some products for a user."""
     conn, c = mock_db
+    
+    # 首先初始化数据库
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        db_utils.init_db()
+    
     user_id = 1 # admin user created by init_db
     products_to_add = [
         (user_id, 'Product A', 'Cat1', 100),
@@ -116,19 +136,30 @@ def product_fixture(mock_db):
 def test_add_product(mock_db):
     """Test adding a new product."""
     conn, c = mock_db
-    user_id = 1
-    product_data = {
-        "user_id": user_id, "name": "Test Product", "russian_name": "", "category": "Test Cat",
-        "model": "T-1000", "unit_price": 99.9, "weight_g": 500, "length_cm": 10,
-        "width_cm": 5, "height_cm": 2, "is_cylinder": 0, "cylinder_diameter": 0,
-        "cylinder_length": 0, "has_battery": 0, "battery_capacity_wh": 0,
-        "battery_capacity_mah": 0, "battery_voltage": 0, "has_msds": 0,
-        "has_flammable": 0, "shipping_fee": 10, "labeling_fee": 1,
-        "promotion_discount": 0.1, "promotion_cost_rate": 0.1,
-        "target_profit_margin": 0.5, "commission_rate": 0.15,
-        "withdrawal_fee_rate": 0.01, "payment_processing_fee": 0.02
-    }
-    db_utils.add_product(product_data)
+    
+    # 首先初始化数据库
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        db_utils.init_db()
+        
+        user_id = 1
+        product_data = {
+            "user_id": user_id, "name": "Test Product", "russian_name": "", "category": "Test Cat",
+            "model": "T-1000", "unit_price": 99.9, "weight_g": 500, "length_cm": 10,
+            "width_cm": 5, "height_cm": 2, "is_cylinder": 0, "cylinder_diameter": 0,
+            "cylinder_length": 0, "has_battery": 0, "battery_capacity_wh": 0,
+            "battery_capacity_mah": 0, "battery_voltage": 0, "has_msds": 0,
+            "has_flammable": 0, "shipping_fee": 10, "labeling_fee": 1,
+            "promotion_discount": 0.1, "promotion_cost_rate": 0.1,
+            "target_profit_margin": 0.5, "commission_rate": 0.15,
+            "withdrawal_fee_rate": 0.01, "payment_processing_fee": 0.02
+        }
+        db_utils.add_product(product_data)
 
     product = c.execute("SELECT * FROM products WHERE name = 'Test Product'").fetchone()
     assert product is not None
@@ -137,50 +168,86 @@ def test_add_product(mock_db):
 
 def test_get_all_products_for_user(mock_db, product_fixture):
     """Test fetching all products for a given user."""
+    conn, c = mock_db
     user_id = product_fixture
-    products = db_utils.get_all_products_for_user(user_id)
-    assert len(products) == 3
-    assert products[0]['name'] == 'Product A'
+    
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        products = db_utils.get_all_products_for_user(user_id)
+        assert len(products) == 3
+        assert products[0]['name'] == 'Product A'
 
 def test_get_product_by_id(mock_db, product_fixture):
     """Test fetching a single product by its ID."""
+    conn, c = mock_db
     user_id = product_fixture
-    # Let's get the ID of 'Product B'
-    product_b_id = db_utils.get_all_products_for_user(user_id)[1]['id']
+    
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        # Let's get the ID of 'Product B'
+        product_b_id = db_utils.get_all_products_for_user(user_id)[1]['id']
 
-    product = db_utils.get_product_by_id(product_b_id, user_id)
-    assert product is not None
-    assert product['name'] == 'Product B'
+        product = db_utils.get_product_by_id(product_b_id, user_id)
+        assert product is not None
+        assert product['name'] == 'Product B'
 
-    # Test getting a non-existent product
-    non_existent = db_utils.get_product_by_id(999, user_id)
-    assert non_existent is None
+        # Test getting a non-existent product
+        non_existent = db_utils.get_product_by_id(999, user_id)
+        assert non_existent is None
 
 def test_delete_product(mock_db, product_fixture):
     """Test deleting a product."""
+    conn, c = mock_db
     user_id = product_fixture
-    products_before = db_utils.get_all_products_for_user(user_id)
-    assert len(products_before) == 3
+    
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        products_before = db_utils.get_all_products_for_user(user_id)
+        assert len(products_before) == 3
 
-    product_to_delete_id = products_before[0]['id']
-    db_utils.delete_product(product_to_delete_id, user_id)
+        product_to_delete_id = products_before[0]['id']
+        db_utils.delete_product(product_to_delete_id, user_id)
 
-    products_after = db_utils.get_all_products_for_user(user_id)
-    assert len(products_after) == 2
+        products_after = db_utils.get_all_products_for_user(user_id)
+        assert len(products_after) == 2
     assert all(p['id'] != product_to_delete_id for p in products_after)
 
 def test_batch_delete_products(mock_db, product_fixture):
     """Test batch deleting products."""
+    conn, c = mock_db
     user_id = product_fixture
-    products_before = db_utils.get_all_products_for_user(user_id)
-    assert len(products_before) == 3
+    
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        products_before = db_utils.get_all_products_for_user(user_id)
+        assert len(products_before) == 3
 
-    ids_to_delete = [p['id'] for p in products_before[:2]] # Delete first two
-    db_utils.batch_delete_products(ids_to_delete, user_id)
+        ids_to_delete = [p['id'] for p in products_before[:2]] # Delete first two
+        db_utils.batch_delete_products(ids_to_delete, user_id)
 
-    products_after = db_utils.get_all_products_for_user(user_id)
-    assert len(products_after) == 1
-    assert products_after[0]['name'] == 'Product C'
+        products_after = db_utils.get_all_products_for_user(user_id)
+        assert len(products_after) == 1
+        assert products_after[0]['name'] == 'Product C'
 
 def test_update_product(mock_db, product_fixture):
     """Test updating a product."""
@@ -223,8 +290,14 @@ def test_init_db(mock_db_connection):
     """Test the database initialization."""
     conn, c = mock_db_connection
 
-    # Patch get_db to return our clean in-memory connection
-    with patch('db_utils.get_db', return_value=(conn, c)):
+    # Patch get_db_connection to return our clean in-memory connection  
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
         db_utils.init_db()
 
     # Check if tables are created
@@ -247,9 +320,21 @@ def test_init_db(mock_db_connection):
     assert count == 1
 
 @pytest.fixture
+
 def logistics_fixture(mock_db):
     """Fixture to add logistics data for priority group calculation."""
     conn, c = mock_db
+    
+    # 首先初始化数据库
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        db_utils.init_db()
+    
     user_id = 1
     logistics_data = [
         # land
@@ -270,21 +355,28 @@ def test_calculate_and_update_priority_groups(mock_db, logistics_fixture):
     """Test the priority group calculation and update logic."""
     conn, c = mock_db
 
-    db_utils.calculate_and_update_priority_groups()
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def mock_get_db_connection():
+        yield conn, c
+    
+    with patch('db_utils.get_db_connection', mock_get_db_connection):
+        db_utils.calculate_and_update_priority_groups()
 
-    c.execute("SELECT name, priority_group FROM logistics ORDER BY name")
-    results = c.fetchall()
+        c.execute("SELECT name, priority_group FROM logistics ORDER BY name")
+        results = c.fetchall()
 
-    expected_groups = {
-        'Air Fast': 'A',
-        'Air Medium': 'D', # Corrected from 'C'
-        'Air Slow': 'D',
-        'Air Zero': 'E',
-        'Land Fast': 'A',
-        'Land Medium': 'D', # Corrected from 'C'
-        'Land Slow': 'D',
-    }
+        expected_groups = {
+            'Air Fast': 'A',
+            'Air Medium': 'D', # Corrected from 'C'
+            'Air Slow': 'D',
+            'Air Zero': 'E',
+            'Land Fast': 'A',
+            'Land Medium': 'D', # Corrected from 'C'
+            'Land Slow': 'D',
+        }
 
-    assert len(results) == len(expected_groups)
-    for row in results:
-        assert expected_groups[row['name']] == row['priority_group']
+        assert len(results) == len(expected_groups)
+        for row in results:
+            assert expected_groups[row['name']] == row['priority_group']

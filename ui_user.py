@@ -304,10 +304,10 @@ def login_or_register_page():
         pwd = st.text_input("密码", type="password")
         submitted = st.form_submit_button("登录")
         if submitted:
-            from db_utils import verify_user
-            user = verify_user(identifier, pwd)
-            if user:
-                st.session_state.user = user
+            from session_security import secure_login
+            login_success = secure_login(identifier, pwd)
+            if login_success:
                 st.rerun()
-            else:
-                st.error("用户名/邮箱或密码错误")
+            # secure_login函数内部已经处理了错误信息显示
+
+    # 数据库连接在get_db_connection上下文管理器中自动关闭

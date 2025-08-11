@@ -302,11 +302,19 @@ def calculate_pricing(product, land_logistics, air_logistics,
             else:
                 raise ValueError(f"无法将 {type(product)} 类型的 product 转换为字典")
 
-        # 如果物流为空，直接返回空列表
-        if logistics.empty:
-            return res
+        # 处理物流数据 - 支持DataFrame和list
+        if hasattr(logistics, 'empty'):
+            # pandas DataFrame
+            if logistics.empty:
+                return res
+            logistics_iter = logistics.iterrows()
+        else:
+            # Python list
+            if not logistics:
+                return res
+            logistics_iter = enumerate(logistics)
 
-        for _, log in logistics.iterrows():
+        for _, log in logistics_iter:
             # 将 pandas Series 转换为字典
             current_log_dict = (log.to_dict() if hasattr(log, 'to_dict')
                                 else dict(log) if hasattr(log, 'items')

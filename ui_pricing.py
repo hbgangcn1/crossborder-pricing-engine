@@ -558,3 +558,7 @@ def pricing_calculator_page():
                             st.text(f"  {debug_line}")
 
                     st.markdown("---")
+
+    # 确保数据库连接被关闭
+    if 'conn' in locals():
+        conn.close()

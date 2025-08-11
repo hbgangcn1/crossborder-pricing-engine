@@ -6,7 +6,10 @@ from ui_user import user_management_page, login_or_register_page
 from ui_products import products_page
 from ui_logistics import logistics_page
 from ui_pricing import pricing_calculator_page
-from db_utils import get_db, init_db
+from db_utils import get_db, init_db, update_user_password
+from session_security import (
+    check_session_security, SessionSecurity, secure_logout
+)
 from exchange_service import ExchangeRateService, get_usd_rate
 
 # 设置页面配置
@@ -244,52 +247,8 @@ def settings_page():
         unsafe_allow_html=True
     )
 
-    # 修改密码
-    st.subheader("修改密码")
-    current_password = st.text_input("当前密码", type="password")
-    new_password = st.text_input("新密码", type="password")
-    confirm_password = st.text_input("确认新密码", type="password")
-
-    if st.button("修改密码"):
-        if new_password != confirm_password:
-            st.error("新密码和确认密码不匹配！")
-        elif len(new_password) < 6:
-            st.error("新密码长度至少6位！")
-        else:
-            conn, c = get_db()
-            try:
-                user_id = st.session_state.user["id"]
-
-                # 获取当前用户信息
-                user = c.execute(
-                    "SELECT password FROM users WHERE id = ?",
-                    (user_id,)
-                ).fetchone()
-
-                if user:
-                    current_password_hash = hashlib.sha256(
-                        current_password.encode()
-                    ).hexdigest()
-
-                    if current_password_hash == user[0]:
-                        new_password_hash = hashlib.sha256(
-                            new_password.encode()
-                        ).hexdigest()
-
-                        c.execute(
-                            "UPDATE users SET password = ? WHERE id = ?",
-                            (new_password_hash, user_id)
-                        )
-                        conn.commit()
-                        st.success("密码修改成功！")
-                    else:
-                        st.error("当前密码错误！")
-                else:
-                    st.error("用户不存在！")
-            except Exception as e:
-                st.error(f"修改密码失败：{str(e)}")
-            finally:
-                conn.close()
+    # 修改密码 - 使用show_password_change_form函数
+    show_password_change_form()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -303,7 +262,18 @@ def settings_page():
 
     st.write(f"**当前用户：** {st.session_state.user['username']}")
     st.write(f"**用户角色：** {st.session_state.user['role']}")
-    st.write(f"**登录时间：** {st.session_state.user.get('login_time', 'N/A')}")
+
+    # 显示会话安全信息
+    session_info = SessionSecurity.get_session_info(
+        st.session_state.get('session_id', ''))
+    if session_info:
+        import time
+        last_activity_str = time.strftime(
+            '%H:%M:%S', time.localtime(session_info['last_activity']))
+        st.write(f"**最后活动：** {last_activity_str}")
+
+        # 简化的会话信息显示
+        st.write(f"**会话ID：** {session_info['session_id'][:8]}...")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -366,23 +336,50 @@ def show_main_interface():
         key="logout",
         help="点击退出当前用户登录"
     ):
-        st.session_state.user = None
-        st.session_state.pop("products_data", None)
-        st.session_state.pop("logistics_data", None)
-        st.rerun()
+        secure_logout()
+
+
+def show_password_change_form():
+    """显示密码修改表单"""
+    st.subheader("🔒 修改密码")
+
+    with st.form("password_change_form"):
+        current_password = st.text_input("当前密码", type="password")
+        new_password = st.text_input("新密码", type="password")
+        confirm_password = st.text_input("确认新密码", type="password")
+
+        submitted = st.form_submit_button("修改密码")
+
+        if submitted:
+            if (not current_password or not new_password or
+                    not confirm_password):
+                st.error("请填写所有字段")
+                return
+
+            if new_password != confirm_password:
+                st.error("新密码和确认密码不匹配")
+                return
+
+            if len(new_password) < 6:
+                st.error("新密码长度至少6位")
+                return
+            # 验证当前密码并更新
+            user_id = st.session_state.user['id']
+            if update_user_password(user_id, current_password, new_password):
+                st.success("密码修改成功！")
+            else:
+                st.error("当前密码错误")
 
 
 def main():
     init_db()
-    if "user" not in st.session_state:
-        st.session_state.user = None
 
-    if st.session_state.user is None:
+    # 检查会话安全性
+    if not check_session_security():
         login_or_register_page()
-        # noinspection PyUnreachableCode
-        return  # 这行代码实际上不会执行，因为 login_or_register_page() 会调用 st.rerun()
+        return
 
-    # noinspection PyUnreachableCode
+    # 如果会话有效，显示主界面
     show_main_interface()
 
 
