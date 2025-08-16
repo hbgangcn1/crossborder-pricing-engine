@@ -330,27 +330,30 @@ def _upgrade_logistics_new_fields():
     cols = [col[1]
             for col in c.execute("PRAGMA table_info(logistics)").fetchall()]
     new_cols = {
-        "battery_capacity_limit_wh": "REAL DEFAULT 0",
-        "require_msds": "INTEGER DEFAULT 0",
-        "fee_mode": "TEXT DEFAULT 'base_plus_continue'",
-        "first_fee": "REAL DEFAULT 0",
-        "first_weight_g": "INTEGER DEFAULT 0",
-        "continue_fee": "REAL DEFAULT 0",
-        "continue_unit": "TEXT DEFAULT '100'",
-        "volume_coefficient": "INTEGER DEFAULT 5000",
-        "price_min_rub": "REAL DEFAULT 0",
-        "max_second_side": "INTEGER DEFAULT 0",
-        "min_second_side": "INTEGER DEFAULT 0",
-        "min_length": "INTEGER DEFAULT 0",
-        "max_cylinder_sum": "INTEGER DEFAULT 0",
-        "min_cylinder_sum": "INTEGER DEFAULT 0",
-        "max_cylinder_length": "INTEGER DEFAULT 0",
-        "min_cylinder_length": "INTEGER DEFAULT 0",
-        "delivery_method": "TEXT DEFAULT 'unknown'",
-        "priority_group": "TEXT DEFAULT 'D'",
-        "price_limit_currency": "TEXT DEFAULT 'RUB'",
-        "price_min_currency": "TEXT DEFAULT 'RUB'",
-    }
+            "battery_capacity_limit_wh": "REAL DEFAULT 0",
+            "require_msds": "INTEGER DEFAULT 0",
+            "fee_mode": "TEXT DEFAULT 'base_plus_continue'",
+            "first_fee": "REAL DEFAULT 0",
+            "first_weight_g": "INTEGER DEFAULT 0",
+            "continue_fee": "REAL DEFAULT 0",
+            "continue_unit": "TEXT DEFAULT '100'",
+            "volume_coefficient": "INTEGER DEFAULT 5000",
+            "price_limit_rub": "REAL DEFAULT 0",
+            "price_min_rub": "REAL DEFAULT 0",
+            "max_second_side": "INTEGER DEFAULT 0",
+            "min_second_side": "INTEGER DEFAULT 0",
+            "min_length": "INTEGER DEFAULT 0",
+            "max_cylinder_sum": "INTEGER DEFAULT 0",
+            "min_cylinder_sum": "INTEGER DEFAULT 0",
+            "max_cylinder_length": "INTEGER DEFAULT 0",
+            "min_cylinder_length": "INTEGER DEFAULT 0",
+            "allow_battery": "INTEGER DEFAULT 0",
+            "allow_flammable": "INTEGER DEFAULT 0",
+            "delivery_method": "TEXT DEFAULT 'unknown'",
+            "priority_group": "TEXT DEFAULT 'D'",
+            "price_limit_currency": "TEXT DEFAULT 'RUB'",
+            "price_min_currency": "TEXT DEFAULT 'RUB'",
+        }
     for col, def_sql in new_cols.items():
         if col not in cols:
             c.execute(f"ALTER TABLE logistics ADD COLUMN {col} {def_sql}")
@@ -660,19 +663,16 @@ def get_all_products_for_user(user_id):
     return [dict(product) for product in products]
 
 
-def get_product_by_id(product_id, user_id=None):
-    """根据ID获取产品"""
+def get_product_by_id(product_id, user_id):
+    """根据ID获取产品 - 强制要求用户ID验证"""
+    if user_id is None:
+        raise ValueError("user_id参数是必需的，以确保数据安全隔离")
+
     conn, c = get_db()
-    if user_id:
-        product = c.execute(
-            "SELECT * FROM products WHERE id = ? AND user_id = ?",
-            (product_id, user_id)
-        ).fetchone()
-    else:
-        product = c.execute(
-            "SELECT * FROM products WHERE id = ?",
-            (product_id,)
-        ).fetchone()
+    product = c.execute(
+        "SELECT * FROM products WHERE id = ? AND user_id = ?",
+        (product_id, user_id)
+    ).fetchone()
     return dict(product) if product else None
 
 
@@ -756,13 +756,14 @@ def batch_update_pricing_params(product_ids, user_id, pricing_updates):
     return c.rowcount
 
 
-def calculate_and_update_priority_groups():
-    """计算并更新物流优先级分组"""
+def calculate_and_update_priority_groups(user_id):
+    """计算并更新物流优先级分组 - 支持用户隔离"""
     conn, c = get_db()
 
-    # 获取所有物流数据
+    # 获取指定用户的物流数据
     logistics = c.execute(
-        "SELECT id, type, min_days, max_days FROM logistics"
+        "SELECT id, type, min_days, max_days FROM logistics WHERE user_id = ?",
+        (user_id,)
     ).fetchall()
 
     # 按类型分组

@@ -1,5 +1,6 @@
-pandas==2.3.1
-requests==2.32.4
+# 核心业务依赖
 streamlit==1.48.0
-urllib3==2.5.0
+pandas==2.3.1
 bcrypt==4.3.0
+requests==2.32.4
+schedule==1.2.0

@@ -484,7 +484,7 @@ def run_coverage_improvement():
         "test_db_utils.py",
         "test_enhanced_features.py",
         "test_exchange_service.py",
-        "test_backup_db.py",
+        "test_auto_backup.py",
         "test_app_ui_modules.py",
         "test_logic_enhanced.py",  # 新增
         "test_app_integration.py",  # 新增

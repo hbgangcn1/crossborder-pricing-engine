@@ -148,3 +148,60 @@ tests/
 test_*.py
 *_test.py
 *.md
+
+# 补充遗漏的重要忽略规则
+# 覆盖率文件
+.coverage
+htmlcov/
+.pytest_cache/
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+pricing_system.db
+logistics.db
+non_existent_backup.db
+
+# 汇率缓存文件
+*.json
+!package.json
+!tsconfig.json
+!pyrightconfig.json
+rate_fallback.json
+usd_rate_fallback.json
+moex_rate.json
+
+# 日志文件
+*.log
+backup.log
+logs/
+
+# 备份文件
+backups/
+*.backup
+*.bak
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE配置
+.vscode/
+.idea/
+*.code-workspace
+
+# 临时文件
+*.tmp
+*.temp
+.coverage.*
+
+# 编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 系统文件
+.DS_Store
+Thumbs.db

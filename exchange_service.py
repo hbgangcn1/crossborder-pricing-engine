@@ -5,9 +5,6 @@ import requests
 import threading
 import time
 from abc import ABC, abstractmethod
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from typing import Any, cast
 
 
 logging.basicConfig(level=logging.INFO)
@@ -28,22 +25,15 @@ class BocProvider(ExchangeRateProvider):
     """
     def __init__(self):
         self.url = "https://api.exchangerate-api.com/v4/latest/RUB"
-        self.session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5,
-                      status_forcelist=[500, 502, 503, 504],
-                      allowed_methods=frozenset(['GET']))
-        adapter = HTTPAdapter(max_retries=cast(Any, retry))
-        self.session.mount("https://", adapter)
-        self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def get_rate(self) -> float:
         try:
-            r = self.session.get(self.url, timeout=10)
+            r = requests.get(self.url, timeout=10)
             r.raise_for_status()
             data = r.json()
             # rates.CNY 即 1 RUB 兑多少 CNY
             return float(data["rates"]["CNY"])
-        except Exception as e:
+        except requests.RequestException as e:
             logging.warning("第三方汇率接口失败: %s", e)
         raise ValueError("第三方接口未返回卢布汇率")
 
@@ -66,6 +56,15 @@ class ExchangeRateService:
         "rate_fallback.json"
     )
 
+    def __init__(self):
+        # 仅为静态类型检查器提供属性初始化，避免"实例特性在 __init__ 外部定义"
+        if not hasattr(self, "_rate"):
+            self._provider = BocProvider()
+            self._fallback = FallbackProvider()
+            self._rate = 9.02
+            self._last = 0.0
+            self._refresher_started = False
+
     def __new__(cls):
         with cls._lock:
             if cls._instance is None:
@@ -80,6 +79,17 @@ class ExchangeRateService:
         self._last: float = 0
         self._load_fallback()
         self._start_async_refresh()
+
+    @classmethod
+    def _reset_for_testing(cls):
+        """重置单例实例，仅用于测试"""
+        with cls._lock:
+            cls._instance = None
+
+    def _reset_cache_for_testing(self):
+        """重置缓存，仅用于测试"""
+        self._last = 0.0
+        self._rate = 9.02  # 重置为默认值
 
     def _load_fallback(self):
         try:
@@ -113,11 +123,25 @@ class ExchangeRateService:
                 self._last = time.time()
                 self._save_fallback(new_rate)
                 logging.info("异步刷新汇率: %.5f", new_rate)
-            except requests.RequestException:
+            except (requests.RequestException, ValueError):
                 logging.exception("异步获取汇率失败，继续使用旧值")
             time.sleep(1800)  # 30 分钟
 
     def get_exchange_rate(self) -> float:
+        # 检查是否需要刷新（避免每次都发起网络请求）
+        current_time = time.time()
+        # 如果距离上次刷新不到5分钟，直接返回缓存值
+        if current_time - self._last < 300:  # 5分钟缓存
+            return self._rate
+
+        # 尝试即时刷新（测试可通过mock requests.get 控制返回）
+        try:
+            new_rate = self._provider.get_rate()
+            self._rate = new_rate
+            self._last = current_time
+            self._save_fallback(new_rate)
+        except (requests.RequestException, ValueError):
+            pass
         return self._rate
 
 
@@ -129,22 +153,15 @@ class UsdProvider(ExchangeRateProvider):
     """
     def __init__(self):
         self.url = "https://api.exchangerate-api.com/v4/latest/USD"
-        self.session = requests.Session()
-        retry = Retry(total=2, backoff_factor=0.5,
-                      status_forcelist=[500, 502, 503, 504],
-                      allowed_methods=frozenset(['GET']))
-        adapter = HTTPAdapter(max_retries=cast(Any, retry))
-        self.session.mount("https://", adapter)
-        self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def get_rate(self) -> float:
         try:
-            r = self.session.get(self.url, timeout=10)
+            r = requests.get(self.url, timeout=10)
             r.raise_for_status()
             data = r.json()
             # rates.CNY 即 1 USD 兑多少 CNY
             return float(data["rates"]["CNY"])
-        except Exception as e:
+        except requests.RequestException as e:
             logging.warning("美元汇率接口失败: %s", e)
         raise ValueError("第三方接口未返回美元汇率")
 
@@ -157,6 +174,15 @@ class UsdExchangeRateService:
         os.path.dirname(__file__),
         "usd_rate_fallback.json"
     )
+
+    def __init__(self):
+        # 仅为静态类型检查器提供属性初始化，避免"实例特性在 __init__ 外部定义"
+        if not hasattr(self, "_rate"):
+            self._provider = UsdProvider()
+            self._fallback = FallbackProvider(default=7.2)
+            self._rate = 7.2
+            self._last = 0.0
+            self._refresher_started = False
 
     def __new__(cls):
         with cls._lock:
@@ -172,6 +198,17 @@ class UsdExchangeRateService:
         self._last: float = 0
         self._load_fallback()
         self._start_async_refresh()
+
+    @classmethod
+    def _reset_for_testing(cls):
+        """重置单例实例，仅用于测试"""
+        with cls._lock:
+            cls._instance = None
+
+    def _reset_cache_for_testing(self):
+        """重置缓存，仅用于测试"""
+        self._last = 0.0
+        self._rate = 7.2  # 重置为默认值
 
     def _load_fallback(self):
         try:
@@ -205,11 +242,24 @@ class UsdExchangeRateService:
                 self._last = time.time()
                 self._save_fallback(new_rate)
                 logging.info("异步刷新美元汇率: %.5f", new_rate)
-            except requests.RequestException:
+            except (requests.RequestException, ValueError):
                 logging.exception("异步获取美元汇率失败，继续使用旧值")
             time.sleep(1800)  # 30 分钟
 
     def get_exchange_rate(self) -> float:
+        # 检查是否需要刷新（避免每次都发起网络请求）
+        current_time = time.time()
+        # 如果距离上次刷新不到5分钟，直接返回缓存值
+        if current_time - self._last < 300:  # 5分钟缓存
+            return self._rate
+
+        try:
+            new_rate = self._provider.get_rate()
+            self._rate = new_rate
+            self._last = current_time
+            self._save_fallback(new_rate)
+        except (requests.RequestException, ValueError):
+            pass
         return self._rate
 
 

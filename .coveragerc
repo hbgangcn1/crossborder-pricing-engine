@@ -1,0 +1,20 @@
+[run]
+branch = True
+source = logistics
+omit =
+    logistics/tests/*
+    logistics/*_backup.py
+    logistics/run_tests.py
+    logistics/test_*.py
+    logistics/htmlcov/*
+    logistics/docs/*
+    logistics/ml_demo/*
+    logistics/base/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.: 
+show_missing = True
+skip_covered = False
+

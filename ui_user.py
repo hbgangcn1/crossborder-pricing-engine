@@ -1,9 +1,36 @@
 import streamlit as st
 import pandas as pd
-import hashlib
 import sqlite3
-from db_utils import get_db
-from typing import Any, List
+from datetime import datetime, timedelta
+
+# 兼容包内导入与脚本直跑两种方式
+try:
+    from .db_utils import (
+        get_db,
+        require_admin,
+        get_user_subscription_info,
+        update_user_subscription,
+        hash_password,
+        check_user_subscription_status,
+    )
+    from .password_utils import (
+        validate_password_strength,
+        get_password_requirements_text,
+    )
+except ImportError:  # 当作为顶层脚本运行时
+    from db_utils import (
+        get_db,
+        require_admin,
+        get_user_subscription_info,
+        update_user_subscription,
+        hash_password,
+        check_user_subscription_status,
+    )
+    from password_utils import (
+        validate_password_strength,
+        get_password_requirements_text,
+    )
+from typing import Any
 
 
 def sync_logistics_rules(target_user_id: int, overwrite: bool = False):
@@ -55,8 +82,14 @@ def sync_logistics_rules(target_user_id: int, overwrite: bool = False):
             values = []
             for col in columns:
                 # 根据列名获取对应的值
-                col_index = [info[1] for info in columns_info].index(col)
-                values.append(logistics_rule[col_index])
+                try:
+                    col_index = [info[1] for info in columns_info].index(col)
+                    if col_index < len(logistics_rule):
+                        values.append(logistics_rule[col_index])
+                    else:
+                        values.append(None)  # 如果索引超出范围，使用None
+                except (ValueError, IndexError):
+                    values.append(None)  # 如果找不到列或索引超出范围，使用None
 
             # 插入新记录
             c.execute(
@@ -66,223 +99,482 @@ def sync_logistics_rules(target_user_id: int, overwrite: bool = False):
             )
 
         conn.commit()
+        st.success("物流规则同步成功！")
 
-    except Exception as e:
+    except sqlite3.Error as e:
         conn.rollback()
         st.error(f"同步失败: {str(e)}")
-        raise
+    finally:
+        if isinstance(conn, sqlite3.Connection):
+            conn.close()
 
 
 def user_management_page():
     """用户管理页面"""
-    # 美化页面标题
+    # 检查管理员权限
+    try:
+        require_admin()
+    except PermissionError:
+        st.error("❌ 访问被拒绝：您没有管理员权限")
+        return
+
+    # 订阅管理子页面切换
+    if 'selected_user_for_subscription' in st.session_state:
+        subscription_management_page()
+        return
+
+    # 标题
+    st.markdown(
+        (
+            "<div style=\"text-align: center; margin-bottom: 2rem;\">"
+            "<h1 class=\"main-title\">👥 用户管理中心</h1>"
+            "<p style=\"color: #718096; font-size: 1.1rem; margin: 0;\">"
+            "管理系统用户，分配权限和角色"
+            "</p></div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # 打开数据库连接
+    conn, c = get_db()
+    try:
+        # 下拉框格式化函数：总返回 str
+        def _format_user_type(x: object) -> str:
+            mapping = {
+                "permanent": "永久用户",
+                "test": "测试用户",
+                "monthly": "按月付费用户",
+                "enterprise": "企业用户",
+            }
+            return mapping.get(str(x), str(x))
+
+        # 添加用户
+        with st.expander("添加新用户"):
+            with st.form("add_user_form"):
+                username = st.text_input("用户名*")
+                password = st.text_input(
+                    "密码*", type="password",
+                    help=get_password_requirements_text(),
+                )
+                role = st.selectbox("角色*", ["admin", "user"])
+                user_type = st.selectbox(
+                    "用户类型*",
+                    ["permanent", "test", "monthly", "enterprise"],
+                    format_func=_format_user_type,
+                )
+                submitted = st.form_submit_button("添加用户")
+                if submitted:
+                    if not username or not password:
+                        st.error("请填写所有必填字段")
+                    else:
+                        valid = validate_password_strength(password)
+                        if not valid.get('is_valid', False):
+                            st.error("密码强度不符合要求：")
+                            for err in valid.get('errors', []):
+                                st.error(f"• {err}")
+                            return
+                        try:
+                            exists = c.execute(
+                                (
+                                    "SELECT 1 FROM users WHERE "
+                                    "LOWER(username) = "
+                                    "LOWER(?) LIMIT 1"
+                                ),
+                                (username.strip(),),
+                            ).fetchone()
+                            if exists:
+                                st.error("有同名用户存在")
+                                return
+                        except sqlite3.Error:
+                            pass
+                        hashed = hash_password(password)
+                        expiry_date = None
+                        remaining_calculations = 0
+                        first_login_date = None
+                        test_days_remaining = 0
+                        if user_type == "test":
+                            remaining_calculations = -1
+                            test_days_remaining = 7
+                        elif user_type == "permanent":
+                            remaining_calculations = -1
+                        elif user_type == "monthly":
+                            remaining_calculations = 100
+                        elif user_type == "enterprise":
+                            remaining_calculations = -1
+                        try:
+                            c.execute(
+                                (
+                                    "INSERT INTO users (username, password, "
+                                    "role, user_type, expiry_date, "
+                                    "remaining_calculations, "
+                                    "first_login_date, "
+                                    "test_days_remaining) VALUES ("
+                                    "?, ?, ?, ?, ?, ?, ?, ?)"
+                                ),
+                                (
+                                    username, hashed, role, user_type,
+                                    expiry_date, remaining_calculations,
+                                    first_login_date, test_days_remaining,
+                                ),
+                            )
+                            conn.commit()
+                            st.success("用户添加成功！")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("有同名用户存在")
+                        except sqlite3.Error as exc:
+                            st.error(f"添加用户失败: {exc}")
+
+        # 批量同步
+        with st.expander("📦 批量物流规则同步", expanded=False):
+            non_admin_users = pd.read_sql(
+                "SELECT id, username FROM users WHERE role != 'admin'",
+                conn,
+            )
+            if non_admin_users.empty:
+                st.info("没有可同步的用户账号")
+            else:
+                query = (
+                    "SELECT COUNT(*) FROM logistics WHERE user_id = "
+                    "(SELECT id FROM users WHERE role='admin' LIMIT 1)"
+                )
+                admin_count = c.execute(query).fetchone()[0]
+                st.info(f"Admin物流规则数量: {admin_count}")
+                if admin_count > 0:
+
+                    # 为静态类型检查避免 Pandas 访问器告警，先构造映射表
+                    _rows = non_admin_users.to_dict(orient="records")
+                    id_to_username: dict[int, str] = {
+                        int(r["id"]): str(r["username"]) for r in _rows
+                    }
+
+                    def get_username_for_display(user_id: int) -> str:
+                        return id_to_username.get(int(user_id), str(user_id))
+                    selected = st.multiselect(
+                        "选择要同步的用户:",
+                        options=non_admin_users['id'].tolist(),
+                        format_func=get_username_for_display,
+                        key="batch_sync_users",
+                    )
+                    mode = st.radio(
+                        "批量同步方式:",
+                        ["追加模式 (保留用户现有规则)",
+                         "覆盖模式 (删除用户现有规则)"],
+                        key="batch_sync_mode",
+                    )
+                    if st.button("🚀 批量同步物流规则") and selected:
+                        overwrite = (mode == "覆盖模式 (删除用户现有规则)")
+                        success = 0
+                        failed: list[str] = []
+                        for uid in selected:
+                            try:
+                                sync_logistics_rules(uid, overwrite)
+                                success += 1
+                            except sqlite3.Error as exc:
+                                uname = id_to_username.get(
+                                    int(uid), f"用户ID:{uid}"
+                                )
+                                failed.append(f"{uname}: {exc}")
+                        if success:
+                            st.success(f"成功同步到 {success} 个用户账号")
+                        if failed:
+                            st.error("以下用户同步失败:")
+                            for item in failed:
+                                st.write(f"- {item}")
+                        if success:
+                            st.rerun()
+                else:
+                    st.warning("Admin账号没有物流规则可同步")
+
+        # 用户列表与操作
+        st.subheader("用户列表")
+        users = pd.read_sql(
+            "SELECT id, username, role FROM users", conn
+        )
+        if users.empty:
+            st.info("暂无用户数据")
+            return
+
+        def _format_user_row(row: Any) -> str:
+            return (
+                f"{row.id} - {row.username} "
+                f"({row.role})"
+            )
+        choice = st.radio(
+            "请选择一名用户",
+            options=users.itertuples(index=False),
+            format_func=_format_user_row,
+        )
+        if choice:
+            # itertuples 默认 namedtuple，但静态检查可能视为 tuple
+            uid = int(getattr(choice, "id", choice[0]))
+            uname = str(getattr(choice, "username", choice[1]))
+            urole = str(getattr(choice, "role", choice[2]))
+            st.write("---")
+            st.write(f"**已选用户：** {uname}（{urole}）")
+
+            # 重置密码
+            with st.expander("重置密码"):
+                with st.form("reset_password_form"):
+                    new_pwd = st.text_input(
+                        "新密码*", type="password",
+                        help=get_password_requirements_text(),
+                    )
+                    if st.form_submit_button("确认重置"):
+                        if not new_pwd:
+                            st.error("请输入新密码")
+                        else:
+                            ok = validate_password_strength(new_pwd)
+                            if not ok.get('is_valid', False):
+                                st.error("密码强度不符合要求：")
+                                for err in ok.get('errors', []):
+                                    st.error(f"• {err}")
+                                return
+                            hashed = hash_password(new_pwd)
+                            c.execute(
+                                "UPDATE users SET password=? WHERE id=?",
+                                (hashed, uid),
+                            )
+                            conn.commit()
+                            st.success("密码已更新！")
+                            st.rerun()
+            # 单用户同步
+            with st.expander("物流规则同步"):
+                query = (
+                    "SELECT COUNT(*) FROM logistics WHERE user_id = "
+                    "(SELECT id FROM users WHERE role='admin' LIMIT 1)"
+                )
+                admin_cnt = c.execute(query).fetchone()[0]
+                user_cnt = c.execute(
+                    "SELECT COUNT(*) FROM logistics WHERE user_id = ?",
+                    (uid,),
+                ).fetchone()[0]
+                st.info(f"Admin物流规则数量: {admin_cnt}")
+                st.info(f"{uname}当前物流规则数量: {user_cnt}")
+                sync_mode = st.radio(
+                    "同步方式:",
+                    ["追加模式 (保留用户现有规则)",
+                     "覆盖模式 (删除用户现有规则)"],
+                    key=f"sync_mode_{uid}",
+                )
+                if st.button("🔄 同步物流规则", key=f"sync_logistics_{uid}"):
+                    if admin_cnt == 0:
+                        st.warning("Admin账号没有物流规则可同步")
+                    else:
+                        overwrite = (
+                            sync_mode == "覆盖模式 (删除用户现有规则)"
+                        )
+                        sync_logistics_rules(uid, overwrite)
+                        st.success(
+                            f"成功同步 {admin_cnt} 条物流规则到 {uname}")
+                        st.rerun()
+
+            # 顶部操作
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("订阅管理", key=f"subscription_{uid}"):
+                    st.session_state.selected_user_for_subscription = uid
+                    st.rerun()
+            with col2:
+                if st.button("删除用户", key=f"del_user_{uid}"):
+                    if uid == st.session_state.user["id"]:
+                        st.error("不能删除当前登录用户")
+                    else:
+                        st.session_state.delete_confirm_user_id = uid
+                        st.rerun()
+
+            # 删除确认
+            if st.session_state.get("delete_confirm_user_id"):
+                pending_uid = st.session_state.delete_confirm_user_id
+                if pending_uid == st.session_state.user["id"]:
+                    st.error("不能删除当前登录用户")
+                    del st.session_state.delete_confirm_user_id
+                else:
+                    st.warning("确定要删除该用户吗？")
+                    col_c, col_x = st.columns(2)
+                    with col_c:
+                        if st.button("确定删除", key="confirm_delete_user"):
+                            c.execute(
+                                "DELETE FROM users WHERE id = ?",
+                                (pending_uid,),
+                            )
+                            conn.commit()
+                            del st.session_state.delete_confirm_user_id
+                            st.success("用户已删除！")
+                            st.rerun()
+                    with col_x:
+                        if st.button("取消", key="cancel_delete_user"):
+                            del st.session_state.delete_confirm_user_id
+                            st.rerun()
+    finally:
+        if 'conn' in locals() and isinstance(conn, sqlite3.Connection):
+            conn.close()
+
+
+def subscription_management_page():
+    """订阅管理页面"""
+    if 'selected_user_for_subscription' not in st.session_state:
+        st.error("请先选择要管理的用户")
+        return
+
+    user_id = st.session_state.selected_user_for_subscription
+    user_info = get_user_subscription_info(user_id)
+
+    if not user_info:
+        st.error("用户信息不存在")
+        return
+
     st.markdown(
         """
         <div style="text-align: center; margin-bottom: 2rem;">
-            <h1 class="main-title">👥 用户管理中心</h1>
+            <h1 class="main-title">📋 订阅管理</h1>
             <p style="color: #718096; font-size: 1.1rem; margin: 0;">
-                管理系统用户，分配权限和角色
+                管理用户订阅状态和权限
             </p>
         </div>
         """,
         unsafe_allow_html=True
     )
-    conn, c = get_db()
-    with st.expander("添加新用户"):
-        with st.form("add_user_form"):
-            username = st.text_input("用户名*")
-            password = st.text_input("密码*", type="password")
-            role = st.selectbox("角色*", ["admin", "user"])
-            if st.form_submit_button("添加用户"):
-                if not username or not password:
-                    st.error("请填写所有必填字段")
-                else:
-                    hashed = hashlib.sha256(password.encode()).hexdigest()
-                    try:
-                        c.execute(
-                            "INSERT INTO users (username, password, role) "
-                            "VALUES (?, ?, ?)",
-                            (username, hashed, role),
-                        )
-                        conn.commit()
-                        st.success("用户添加成功！")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("用户名已存在")
-                    except Exception as e:
-                        st.error(f"添加用户失败: {e}")
-    # 批量同步功能
-    with st.expander("📦 批量物流规则同步", expanded=False):
-        st.write("一键将admin物流规则同步到多个用户账号")
 
-        # 获取所有非admin用户
-        non_admin_users = pd.read_sql(
-            "SELECT id, username FROM users WHERE role != 'admin'", conn
-        )
+    # 显示用户基本信息
+    st.subheader("用户信息")
+    st.write(f"**用户名称：** {user_info['username']}")
 
-        if not non_admin_users.empty:
-            # 显示admin的物流规则数量
-            query = (
-                "SELECT COUNT(*) FROM logistics WHERE user_id = "
-                "(SELECT id FROM users WHERE role='admin' LIMIT 1)"
-            )
-            admin_logistics_count = c.execute(query).fetchone()[0]
+    user_type_names = {
+        "test": "测试用户",
+        "permanent": "永久用户",
+        "monthly": "按月付费用户",
+        "enterprise": "企业用户"
+    }
+    st.write(f"**用户类型：** {user_type_names.get(user_info['user_type'], '未知')}")
 
-            st.info(f"Admin物流规则数量: {admin_logistics_count}")
+    # 显示订阅状态
+    subscription_status = check_user_subscription_status(user_id)
+    if subscription_status.get('valid', False):
+        st.success(f"**订阅状态：** {subscription_status.get('message', '有效')}")
+    else:
+        st.error(f"**订阅状态：** {subscription_status.get('message', '无效')}")
 
-            if admin_logistics_count > 0:
-                # 多选用户
-                def get_username(uid: int) -> str:
-                    user_df = non_admin_users[
-                        non_admin_users['id'] == uid
-                    ]
-                    return user_df['username'].iloc[0]  # type: ignore
+    # 显示订阅信息
+    if user_info['user_type'] == 'monthly':
+        if user_info['expiry_date']:
+            expiry = datetime.fromisoformat(user_info['expiry_date'])
+            from datetime import date
+            days_remaining = (expiry.date() - date.today()).days
+            st.write(f"**剩余时长：** {days_remaining} 天")
+        st.write(f"**剩余计算次数：** {user_info['remaining_calculations']} 次")
 
-                selected_users = st.multiselect(
-                    "选择要同步的用户:",
-                    options=non_admin_users['id'].tolist(),
-                    format_func=get_username,
-                    key="batch_sync_users"
+    elif user_info['user_type'] == 'enterprise':
+        if user_info['expiry_date']:
+            expiry = datetime.fromisoformat(user_info['expiry_date'])
+            from datetime import date
+            days_remaining = (expiry.date() - date.today()).days
+            st.write(f"**剩余时长：** {days_remaining} 天")
+
+    # 订阅管理操作
+    st.subheader("订阅管理")
+
+    if user_info['user_type'] == 'test':
+        if st.button("转为永久用户"):
+            update_user_subscription(user_id, {
+                'user_type': 'permanent',
+                'expiry_date': None,
+                'remaining_calculations': -1,
+                'test_days_remaining': 0
+            })
+            st.success("用户已转为永久用户！")
+            st.rerun()
+
+    elif user_info['user_type'] == 'monthly':
+        st.write("**增加订阅：**")
+        calculation_option = st.radio("选择次数", ["100次", "500次"])
+        calculations = 100 if calculation_option == "100次" else 500
+
+        if st.button("增加30天"):
+            current_expiry = user_info.get('expiry_date')
+            if current_expiry:
+                new_expiry = (
+                    datetime.fromisoformat(current_expiry) +
+                    timedelta(days=30)
                 )
+            else:
+                new_expiry = datetime.now() + timedelta(days=30)
 
-                # 同步选项
-                batch_sync_mode = st.radio(
-                    "批量同步方式:",
-                    [
-                        "追加模式 (保留用户现有规则)",
-                        "覆盖模式 (删除用户现有规则)"
-                    ],
-                    key="batch_sync_mode"
+            new_calculations = (
+                user_info.get(
+                    'remaining_calculations',
+                    0,
+                ) + calculations
+            )
+
+            update_user_subscription(user_id, {
+                'expiry_date': new_expiry.isoformat(),
+                'remaining_calculations': new_calculations
+            })
+            st.success(f"已增加30天时长和{calculations}次计算！")
+            st.rerun()
+
+    elif user_info['user_type'] == 'enterprise':
+        if st.button("增加30天"):
+            current_expiry = user_info.get('expiry_date')
+            if current_expiry:
+                new_expiry = (
+                    datetime.fromisoformat(current_expiry) +
+                    timedelta(days=30)
                 )
-
-                if st.button("🚀 批量同步物流规则") and selected_users:
-                    success_count = 0
-                    failed_users: List[str] = []
-
-                    for user_id in selected_users:
-                        try:
-                            overwrite_mode = (
-                                batch_sync_mode == "覆盖模式 (删除用户现有规则)"
-                            )
-                            sync_logistics_rules(user_id, overwrite_mode)
-                            success_count += 1
-                        except Exception as e:
-                            # 使用更安全的方式获取用户名
-                            try:
-                                user_row = non_admin_users[
-                                    non_admin_users['id'] == user_id
-                                ]
-                                username = (
-                                    user_row.iloc[0][
-                                        'username'
-                                    ]  # type: ignore
-                                )
-                            except (IndexError, KeyError):
-                                username = f"用户ID:{user_id}"
-                            failed_users.append(f"{username}: {str(e)}")
-
-                    if success_count > 0:
-                        st.success(f"成功同步到 {success_count} 个用户账号")
-
-                    if failed_users:
-                        st.error("以下用户同步失败:")
-                        for error in failed_users:
-                            st.write(f"- {error}")
-
-                    if success_count > 0:
-                        st.rerun()
             else:
-                st.warning("Admin账号没有物流规则可同步")
-        else:
-            st.info("没有可同步的用户账号")
+                new_expiry = datetime.now() + timedelta(days=30)
 
-    st.subheader("用户列表")
-    users = pd.read_sql("SELECT id, username, role FROM users", conn)
-    if users.empty:
-        st.info("暂无用户数据")
-        return
+            update_user_subscription(user_id, {
+                'expiry_date': new_expiry.isoformat()
+            })
+            st.success("已增加30天时长！")
+            st.rerun()
 
-    def format_user(user: Any) -> str:
-        return f"{user.id} - {user.username} ({user.role})"  # type: ignore
+    # 减少订阅
+    st.subheader("减少订阅")
+    col1, col2 = st.columns(2)
 
-    choice = st.radio(
-        "请选择一名用户",
-        options=users.itertuples(index=False),
-        format_func=format_user,
-    )
-    if choice:
-        user_id = choice.id  # type: ignore
-        username = choice.username  # type: ignore
-        role = choice.role  # type: ignore
-        st.write("---")
-        st.write(f"**已选用户：** {username}（{role}）")
-        with st.expander("重置密码"):
-            with st.form("reset_password_form"):
-                new_pwd = st.text_input("新密码*", type="password")
-                if st.form_submit_button("确认重置"):
-                    if not new_pwd:
-                        st.error("请输入新密码")
-                    else:
-                        hashed = hashlib.sha256(new_pwd.encode()).hexdigest()
-                        c.execute(
-                            "UPDATE users SET password=? WHERE id=?",
-                            (hashed, user_id),
-                        )
-                        conn.commit()
-                        st.success("密码已更新！")
-                        st.rerun()
-        # 物流规则同步功能
-        with st.expander("物流规则同步"):
-            st.write("将admin账号的物流规则同步到此用户账号")
-
-            # 显示admin的物流规则数量
-            query = (
-                "SELECT COUNT(*) FROM logistics WHERE user_id = "
-                "(SELECT id FROM users WHERE role='admin' LIMIT 1)"
-            )
-            admin_logistics_count = c.execute(query).fetchone()[0]
-
-            # 显示目标用户的物流规则数量
-            user_logistics_count = c.execute(
-                "SELECT COUNT(*) FROM logistics WHERE user_id = ?",
-                (user_id,)
-            ).fetchone()[0]
-
-            st.info(f"Admin物流规则数量: {admin_logistics_count}")
-            st.info(
-                f"{username}当前物流规则数量: {user_logistics_count}"
-            )
-
-            # 同步选项
-            sync_mode = st.radio(
-                "同步方式:",
-                [
-                    "追加模式 (保留用户现有规则)",
-                    "覆盖模式 (删除用户现有规则)"
-                ],
-                key=f"sync_mode_{user_id}"
-            )
-
-            if st.button("🔄 同步物流规则", key=f"sync_logistics_{user_id}"):
-                if admin_logistics_count == 0:
-                    st.warning("Admin账号没有物流规则可同步")
-                else:
-                    overwrite_mode = sync_mode == "覆盖模式 (删除用户现有规则)"
-                    sync_logistics_rules(user_id, overwrite_mode)
-                    st.success(
-                        f"成功同步 {admin_logistics_count} 条物流规则到 "
-                        f"{username}"
-                    )
-                    st.rerun()
-
-        if st.button("删除用户", key=f"del_user_{user_id}"):
-            if user_id == st.session_state.user["id"]:
-                st.error("不能删除当前登录用户")
-            else:
-                c.execute("DELETE FROM users WHERE id=?", (user_id,))
-                conn.commit()
-                st.success("用户已删除！")
+    with col1:
+        reduce_days = st.number_input("减少使用天数", min_value=1, value=1)
+        if st.button("减少天数"):
+            current_expiry = user_info.get('expiry_date')
+            if current_expiry:
+                new_expiry = (
+                    datetime.fromisoformat(current_expiry) -
+                    timedelta(days=reduce_days)
+                )
+                update_user_subscription(
+                    user_id,
+                    {'expiry_date': new_expiry.isoformat()}
+                )
+                st.success(f"已减少{reduce_days}天！")
                 st.rerun()
+            else:
+                st.error("用户没有到期时间")
+
+    with col2:
+        reduce_calculations = st.number_input("减少使用次数", min_value=1, value=1)
+        if st.button("减少次数"):
+            current_calculations = user_info.get('remaining_calculations', 0)
+            if current_calculations > 0:
+                new_calculations = max(
+                    0,
+                    current_calculations - reduce_calculations,
+                )
+                update_user_subscription(
+                    user_id,
+                    {'remaining_calculations': new_calculations}
+                )
+                st.success(f"已减少{reduce_calculations}次！")
+                st.rerun()
+            else:
+                st.error("用户没有剩余计算次数")
+
+    # 返回按钮
+    if st.button("返回用户管理"):
+        del st.session_state.selected_user_for_subscription
+        st.rerun()
 
 
 def login_or_register_page():
@@ -304,7 +596,10 @@ def login_or_register_page():
         pwd = st.text_input("密码", type="password")
         submitted = st.form_submit_button("登录")
         if submitted:
-            from session_security import secure_login
+            try:
+                from .session_security import secure_login
+            except ImportError:
+                from session_security import secure_login
             login_success = secure_login(identifier, pwd)
             if login_success:
                 st.rerun()

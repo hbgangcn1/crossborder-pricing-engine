@@ -1,7 +1,21 @@
 import time
+import sqlite3
 import secrets
 import hashlib
 import streamlit as st
+from datetime import datetime, timedelta
+try:
+    from .db_utils import (
+        verify_user,
+        update_user_subscription,
+        get_user_subscription_info,
+    )
+except ImportError:  # Fallback when executed as top-level module
+    from db_utils import (
+        verify_user,
+        update_user_subscription,
+        get_user_subscription_info,
+    )
 
 
 class SessionSecurity:
@@ -16,7 +30,10 @@ class SessionSecurity:
     @staticmethod
     def init_session_tables():
         """初始化会话相关数据表"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             # 创建登录尝试记录表
             c.execute("""
@@ -77,7 +94,10 @@ class SessionSecurity:
     @staticmethod
     def is_user_locked(identifier: str) -> bool:
         """检查用户是否被锁定"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             lockout = c.execute(
                 "SELECT locked_until FROM user_lockouts WHERE identifier = ?",
@@ -100,7 +120,10 @@ class SessionSecurity:
     @staticmethod
     def record_login_attempt(identifier: str, success: bool):
         """记录登录尝试"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
 
         client_info = SessionSecurity.get_client_info()
         with get_db_connection() as (conn, c):
@@ -138,90 +161,105 @@ class SessionSecurity:
             conn.commit()
 
     @staticmethod
-    def create_session(user_id: int, user_info: dict) -> str:
+    def create_session(user_id: int, user_info: dict) -> str | None:
         """创建新的用户会话"""
         session_id = SessionSecurity.generate_session_id()
         client_info = SessionSecurity.get_client_info()
 
-        from db_utils import get_db_connection
-        with get_db_connection() as (conn, c):
-            # 清理该用户的旧会话
-            c.execute(
-                "UPDATE active_sessions SET is_active = FALSE "
-                "WHERE user_id = ?",
-                (user_id,)
-            )
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
+        try:
+            with get_db_connection() as (conn, c):
+                # 清理该用户的旧会话
+                c.execute(
+                    "UPDATE active_sessions SET is_active = FALSE "
+                    "WHERE user_id = ?",
+                    (user_id,)
+                )
 
-            # 创建新会话
-            c.execute("""
-                INSERT INTO active_sessions
-                (session_id, user_id, created_at, last_activity,
-                 ip_address, user_agent)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                session_id,
-                user_id,
-                time.time(),
-                time.time(),
-                client_info['ip_address'],
-                client_info['user_agent']
-            ))
+                # 创建新会话
+                c.execute("""
+                    INSERT INTO active_sessions
+                    (session_id, user_id, created_at, last_activity,
+                     ip_address, user_agent)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    session_id,
+                    user_id,
+                    time.time(),
+                    time.time(),
+                    client_info['ip_address'],
+                    client_info['user_agent']
+                ))
 
-            conn.commit()
+                conn.commit()
 
-        # 在Streamlit session_state中存储会话信息
-        st.session_state.session_id = session_id
-        st.session_state.user = user_info
-        st.session_state.last_activity = time.time()
+            # 在Streamlit session_state中存储会话信息
+            st.session_state.session_id = session_id
+            st.session_state.user = user_info
+            st.session_state.last_activity = time.time()
 
-        return session_id
+            return session_id
+        except (sqlite3.Error, OSError, ValueError, Exception):
+            # 数据库连接错误或数据错误时返回None
+            return None
 
     @staticmethod
     def get_session_info(session_id: str):
         """获取会话信息"""
-        from db_utils import get_db_connection
-        with get_db_connection() as (conn, c):
-            # 检查会话是否存在且活跃
-            session = c.execute("""
-                SELECT s.*, u.username, u.email, u.role
-                FROM active_sessions s
-                JOIN users u ON s.user_id = u.id
-                WHERE s.session_id = ? AND s.is_active = TRUE
-            """, (session_id,)).fetchone()
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
+        try:
+            with get_db_connection() as (conn, c):
+                # 检查会话是否存在且活跃
+                session = c.execute("""
+                    SELECT s.*, u.username, u.email, u.role
+                    FROM active_sessions s
+                    JOIN users u ON s.user_id = u.id
+                    WHERE s.session_id = ? AND s.is_active = TRUE
+                """, (session_id,)).fetchone()
 
-            if session:
-                current_time = time.time()
+                if session:
+                    current_time = time.time()
 
-                # 检查会话是否超时
-                if (current_time - session['last_activity'] >
-                        SessionSecurity.SESSION_TIMEOUT):
-                    # 会话超时，标记为非活跃
-                    c.execute(
-                        "UPDATE active_sessions SET is_active = FALSE "
-                        "WHERE session_id = ?",
-                        (session_id,)
-                    )
-                    conn.commit()
-                    return None
+                    # 检查会话是否超时
+                    if (current_time - session['last_activity'] >
+                            SessionSecurity.SESSION_TIMEOUT):
+                        # 会话超时，标记为非活跃
+                        c.execute(
+                            "UPDATE active_sessions SET is_active = FALSE "
+                            "WHERE session_id = ?",
+                            (session_id,)
+                        )
+                        conn.commit()
+                        return None
 
-                # 更新最后活动时间
-                if (current_time - session['last_activity'] >
-                        SessionSecurity.SESSION_REFRESH_INTERVAL):
-                    c.execute(
-                        "UPDATE active_sessions SET last_activity = ? "
-                        "WHERE session_id = ?",
-                        (current_time, session_id)
-                    )
-                    conn.commit()
+                    # 更新最后活动时间
+                    if (current_time - session['last_activity'] >
+                            SessionSecurity.SESSION_REFRESH_INTERVAL):
+                        c.execute(
+                            "UPDATE active_sessions SET last_activity = ? "
+                            "WHERE session_id = ?",
+                            (current_time, session_id)
+                        )
+                        conn.commit()
 
-                return {
-                    'id': session['user_id'],
-                    'username': session['username'],
-                    'email': session['email'],
-                    'role': session['role'],
-                    'session_id': session['session_id'],
-                    'last_activity': session['last_activity']
-                }
+                    return {
+                        'id': session['user_id'],
+                        'username': session['username'],
+                        'email': session['email'],
+                        'role': session['role'],
+                        'session_id': session['session_id'],
+                        'last_activity': session['last_activity']
+                    }
+
+        except (sqlite3.Error, OSError, ValueError, Exception):
+            # 数据库连接错误或数据错误时返回None
+            return None
 
         return None
 
@@ -232,7 +270,10 @@ class SessionSecurity:
             session_id = st.session_state.session_id
 
         if session_id:
-            from db_utils import get_db_connection
+            try:
+                from .db_utils import get_db_connection
+            except ImportError:
+                from db_utils import get_db_connection
             with get_db_connection() as (conn, c):
                 # 标记会话为非活跃
                 c.execute(
@@ -250,7 +291,10 @@ class SessionSecurity:
     @staticmethod
     def cleanup_expired_sessions():
         """清理过期会话"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             # 清理超时的会话
             expired_time = time.time() - SessionSecurity.SESSION_TIMEOUT
@@ -259,6 +303,7 @@ class SessionSecurity:
                 SET is_active = FALSE
                 WHERE last_activity < ? AND is_active = TRUE
             """, (expired_time,))
+            expired_sessions = c.rowcount
 
             # 清理过期的登录尝试记录（保留24小时）
             old_time = time.time() - 86400
@@ -266,19 +311,25 @@ class SessionSecurity:
                 "DELETE FROM login_attempts WHERE timestamp < ?",
                 (old_time,)
             )
+            expired_attempts = c.rowcount
 
             # 清理过期的用户锁定记录
             c.execute(
                 "DELETE FROM user_lockouts WHERE locked_until < ?",
                 (time.time(),)
             )
+            expired_lockouts = c.rowcount
 
             conn.commit()
+            return expired_sessions + expired_attempts + expired_lockouts
 
     @staticmethod
     def get_user_session_info(user_id: int):
         """获取用户的会话信息"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             session = c.execute("""
                 SELECT * FROM active_sessions
@@ -299,7 +350,10 @@ class SessionSecurity:
     @staticmethod
     def get_active_session_count(user_id: int) -> int:
         """获取用户活跃会话数量"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             return c.execute("""
                 SELECT COUNT(*) FROM active_sessions
@@ -309,7 +363,10 @@ class SessionSecurity:
     @staticmethod
     def force_logout_user(user_id: int):
         """强制用户退出所有会话"""
-        from db_utils import get_db_connection
+        try:
+            from .db_utils import get_db_connection
+        except ImportError:
+            from db_utils import get_db_connection
         with get_db_connection() as (conn, c):
             c.execute(
                 "UPDATE active_sessions SET is_active = FALSE "
@@ -321,7 +378,6 @@ class SessionSecurity:
 
 def secure_login(username_or_email: str, password: str) -> bool:
     """安全登录函数"""
-    from db_utils import verify_user
 
     # 检查用户是否被锁定
     if SessionSecurity.is_user_locked(username_or_email):
@@ -334,6 +390,23 @@ def secure_login(username_or_email: str, password: str) -> bool:
     if user:
         # 登录成功
         SessionSecurity.record_login_attempt(username_or_email, True)
+
+        # 首次登录后再开始计时：仅对 monthly/enterprise 首次登录生效
+        try:
+            info = get_user_subscription_info(user['id'])
+            if info:
+                user_type = info.get('user_type')
+                first_login = info.get('first_login_date')
+                if not first_login and user_type in ('monthly', 'enterprise'):
+                    new_expiry = (
+                        datetime.now() + timedelta(days=30)
+                    ).isoformat()
+                    update_user_subscription(user['id'], {
+                        'first_login_date': datetime.now().isoformat(),
+                        'expiry_date': new_expiry
+                    })
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            pass
 
         # 创建安全会话
         SessionSecurity.create_session(user['id'], user)
@@ -377,7 +450,10 @@ def show_session_info():
             st.session_state.user['id'])
         if user_info:
             # 检查是否需要显示锁定警告
-            from db_utils import get_db_connection
+            try:
+                from .db_utils import get_db_connection
+            except ImportError:
+                from db_utils import get_db_connection
             with get_db_connection() as (conn, c):
                 recent_time = time.time() - SessionSecurity.LOCKOUT_DURATION
                 failed_count = c.execute(

@@ -1,16 +1,42 @@
 import streamlit as st
-import sqlite3
-import hashlib
 from typing import Optional
-from ui_user import user_management_page, login_or_register_page
-from ui_products import products_page
-from ui_logistics import logistics_page
-from ui_pricing import pricing_calculator_page
-from db_utils import get_db, init_db, update_user_password
-from session_security import (
-    check_session_security, SessionSecurity, secure_logout
-)
-from exchange_service import ExchangeRateService, get_usd_rate
+
+try:
+    from .db_utils import (
+        init_db, check_user_subscription_status, update_user_password,
+    )
+    from .exchange_service import ExchangeRateService, get_usd_rate
+    from .ui_user import user_management_page, login_or_register_page
+    from .ui_products import products_page
+    from .ui_logistics import logistics_page
+    from .ui_pricing import pricing_calculator_page
+    from .password_utils import (
+        validate_password_strength, get_password_requirements_text,
+    )
+    from .auto_backup import (
+        create_manual_backup, get_backup_info, start_backup_service,
+    )
+    from .session_security import (
+        check_session_security, SessionSecurity, secure_logout,
+    )
+except ImportError:  # Fallback when run as a top-level module
+    from db_utils import (
+        init_db, check_user_subscription_status, update_user_password,
+    )
+    from exchange_service import ExchangeRateService, get_usd_rate
+    from ui_user import user_management_page, login_or_register_page
+    from ui_products import products_page
+    from ui_logistics import logistics_page
+    from ui_pricing import pricing_calculator_page
+    from password_utils import (
+        validate_password_strength, get_password_requirements_text,
+    )
+    from auto_backup import (
+        create_manual_backup, get_backup_info, start_backup_service,
+    )
+    from session_security import (
+        check_session_security, SessionSecurity, secure_logout,
+    )
 
 # 设置页面配置
 st.set_page_config(
@@ -199,42 +225,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def create_user(username, password, role="user", email=None):
-    """创建用户"""
-    # 确保数据库已初始化
-    init_db()
-    conn, c = get_db()
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    try:
-        c.execute(
-            "INSERT INTO users (username, password, role, email) "
-            "VALUES (?, ?, ?, ?)",
-            (username, hashed, role, email),
-        )
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def verify_user(identifier, password):
-    """验证用户"""
-    # 确保数据库已初始化
-    init_db()
-    conn, c = get_db()
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    user = c.execute(
-        "SELECT * FROM users "
-        "WHERE (username = ? OR email = ?) AND password = ?",
-        (
-            identifier,
-            identifier,
-            hashed,
-        ),
-    ).fetchone()
-    return user if user else None
-
-
 def settings_page():
     """设置页面"""
     st.markdown('<h1 class="custom-title">⚙️ 系统设置</h1>',
@@ -252,6 +242,43 @@ def settings_page():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # 备份管理
+    st.markdown('<div class="card-container">', unsafe_allow_html=True)
+    st.markdown(
+        '<h2 style="color: #667eea; margin-bottom: 20px;">'
+        '💾 备份管理</h2>',
+        unsafe_allow_html=True
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📦 立即备份", help="手动创建数据库备份"):
+            if create_manual_backup():
+                st.success("✅ 备份创建成功！")
+            else:
+                st.error("❌ 备份创建失败！")
+
+    with col2:
+        if st.button("🔄 刷新状态", help="刷新备份状态信息"):
+            st.rerun()
+
+    # 显示备份统计信息
+    backup_stats = get_backup_info()
+    if backup_stats:
+        st.write(f"**备份文件数量：** {backup_stats['count']} 个")
+        st.write(f"**总备份大小：** {backup_stats['total_size_mb']} MB")
+
+        if backup_stats['files']:
+            st.write("**最新备份文件：**")
+            for i, file in enumerate(backup_stats['files'][:3]):
+                st.write(f"  {i+1}. {file['name']} "
+                         f"({file['mtime'].strftime('%Y-%m-%d %H:%M:%S')})")
+    else:
+        st.warning("⚠️ 无法获取备份信息")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # 系统信息
     st.markdown('<div class="card-container">', unsafe_allow_html=True)
     st.markdown(
@@ -265,7 +292,8 @@ def settings_page():
 
     # 显示会话安全信息
     session_info = SessionSecurity.get_session_info(
-        st.session_state.get('session_id', ''))
+        st.session_state.get('session_id', '')
+    )
     if session_info:
         import time
         last_activity_str = time.strftime(
@@ -282,6 +310,9 @@ def show_main_interface():
     """显示主界面"""
     from typing import Dict, Any
     current_user: Dict[str, Any] = st.session_state.user
+
+    # 检查用户订阅状态
+    subscription_status = check_user_subscription_status(current_user['id'])
 
     # 美化侧边栏
     st.sidebar.markdown(
@@ -306,6 +337,23 @@ def show_main_interface():
         """,
         unsafe_allow_html=True
     )
+
+    # 显示订阅状态
+    if not subscription_status.get('valid', False):
+        st.sidebar.error("⚠️ 账号已到期，请联系客服续费")
+    else:
+        # 显示到期时间（如果有）
+        if 'remaining_days' in subscription_status:
+            st.sidebar.info(
+                f"📅 到期时间：{subscription_status['remaining_days']}天后"
+            )
+
+        # 显示剩余计算次数（如果是按月付费用户）
+        if 'remaining_calculations' in subscription_status:
+            st.sidebar.info(
+                f"🔢 剩余计算次数："
+                f"{subscription_status['remaining_calculations']}次"
+            )
 
     menu_options = [
         "产品管理", "物流规则", "定价计算器", "设置"
@@ -345,7 +393,9 @@ def show_password_change_form():
 
     with st.form("password_change_form"):
         current_password = st.text_input("当前密码", type="password")
-        new_password = st.text_input("新密码", type="password")
+        new_password = st.text_input(
+            "新密码", type="password", help=get_password_requirements_text()
+        )
         confirm_password = st.text_input("确认新密码", type="password")
 
         submitted = st.form_submit_button("修改密码")
@@ -360,8 +410,12 @@ def show_password_change_form():
                 st.error("新密码和确认密码不匹配")
                 return
 
-            if len(new_password) < 6:
-                st.error("新密码长度至少6位")
+            # 验证密码强度
+            password_validation = validate_password_strength(new_password)
+            if not password_validation['valid']:
+                st.error("密码强度不符合要求：")
+                for error in password_validation['errors']:
+                    st.error(f"• {error}")
                 return
             # 验证当前密码并更新
             user_id = st.session_state.user['id']
@@ -373,6 +427,11 @@ def show_password_change_form():
 
 def main():
     init_db()
+    # 初始化会话安全相关数据表，防止首次启动时表缺失
+    SessionSecurity.init_session_tables()
+
+    # 设置页面标题
+    st.title("🚚 物流定价系统")
 
     # 检查会话安全性
     if not check_session_security():
@@ -465,7 +524,8 @@ def _debug_filter_reason(logistic: dict, product: dict) -> Optional[str]:
             max_cylinder_length = logistic.get("max_cylinder_length", 0)
             if 0 < max_cylinder_length < cylinder_length:
                 return (
-                    f"圆柱长度 {cylinder_length} cm 超过限制 {max_cylinder_length} cm"
+                    f"圆柱长度 {cylinder_length} cm 超过限制 "
+                    f"{max_cylinder_length} cm"
                 )
             min_cyl = logistic.get("min_cylinder_length", 0)
             if min_cyl > 0 and cylinder_length < min_cyl:
@@ -632,12 +692,19 @@ def _debug_filter_reason(logistic: dict, product: dict) -> Optional[str]:
             # 卢布下限：直接比较卢布价格
             if rough_rub < min_value:
                 return f"估算售价 {rough_rub:.2f} RUB 低于价格下限 {min_value} RUB"
-    except Exception as e:
-        return f"限价判断异常: {e}"
+    except (KeyError, TypeError, ZeroDivisionError) as price_exc:
+        return f"限价判断异常: {price_exc}"
 
     # 6. 全部通过
     return None
 
 
 if __name__ == "__main__":
+    # 启动自动备份服务
+    try:
+        start_backup_service()
+        print("🚀 自动备份服务已启动")
+    except (RuntimeError, OSError) as backup_exc:
+        print(f"⚠️ 自动备份服务启动失败: {backup_exc}")
+
     main()
