@@ -519,6 +519,47 @@ def create_user(username, password, role="user", email=None):
             return False
 
 
+def delete_user(user_id):
+    """删除用户"""
+    # 确保数据库已初始化
+    init_db()
+    
+    with get_db_connection() as (conn, c):
+        try:
+            # 检查用户是否存在
+            user = c.execute(
+                "SELECT id, username, role FROM users WHERE id = ?",
+                (user_id,)
+            ).fetchone()
+            
+            if not user:
+                return False  # 用户不存在
+            
+            # 不允许删除admin用户
+            if user[2] == 'admin':
+                return False
+            
+            # 删除用户相关的数据
+            # 删除用户的产品
+            c.execute("DELETE FROM products WHERE user_id = ?", (user_id,))
+            
+            # 删除用户的会话记录
+            c.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+            
+            # 删除用户的登录尝试记录
+            c.execute("DELETE FROM login_attempts WHERE user_id = ?", (user_id,))
+            
+            # 删除用户本身
+            c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"删除用户失败: {e}")
+            return False
+
+
 def verify_user(identifier, password):
     """验证用户"""
     # 确保数据库已初始化
