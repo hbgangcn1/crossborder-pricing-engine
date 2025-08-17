@@ -288,12 +288,9 @@ def logistics_page():
                         f"请填写以下必填字段：{', '.join(missing_fields)}"
                     )
                 else:
-                    # 货币转换
-                    rub_rate = ExchangeRateService().get_exchange_rate()
-                    usd_rate = get_usd_rate()
-
-                    # 价格转换（使用统一货币单位）
+                    # 货币转换 - 只在需要时获取对应汇率
                     if price_currency == "卢布":
+                        rub_rate = ExchangeRateService().get_exchange_rate()
                         price_limit_cny = (
                             round(price_limit * rub_rate, 4)
                             if price_limit > 0
@@ -302,6 +299,7 @@ def logistics_page():
                         price_limit_rub = price_limit
                         price_min_rub = price_min
                     else:  # 美元
+                        usd_rate = get_usd_rate()
                         price_limit_cny = (
                             round(price_limit * usd_rate, 4)
                             if price_limit > 0
@@ -887,12 +885,9 @@ def edit_logistic_form():
         col_save, col_cancel = st.columns(2)
         with col_save:
             if st.button("保存修改", key=f"save_{lid}"):
-                # 货币转换
-                rub_rate = ExchangeRateService().get_exchange_rate()
-                usd_rate = get_usd_rate()
-
-                # 价格转换（使用统一货币单位）
+                # 货币转换 - 只在需要时获取对应汇率
                 if price_currency == "卢布":
+                    rub_rate = ExchangeRateService().get_exchange_rate()
                     price_limit_cny = (
                         round(price_limit * rub_rate, 4)
                         if price_limit > 0
@@ -901,6 +896,7 @@ def edit_logistic_form():
                     price_limit_rub = price_limit
                     price_min_rub = price_min
                 else:  # 美元
+                    usd_rate = get_usd_rate()
                     price_limit_cny = (
                         round(price_limit * usd_rate, 4)
                         if price_limit > 0

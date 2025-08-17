@@ -125,13 +125,13 @@ class ExchangeRateService:
                 logging.info("异步刷新汇率: %.5f", new_rate)
             except (requests.RequestException, ValueError):
                 logging.exception("异步获取汇率失败，继续使用旧值")
-            time.sleep(1800)  # 30 分钟
+            time.sleep(3600)  # 60 分钟
 
     def get_exchange_rate(self) -> float:
         # 检查是否需要刷新（避免每次都发起网络请求）
         current_time = time.time()
-        # 如果距离上次刷新不到5分钟，直接返回缓存值
-        if current_time - self._last < 300:  # 5分钟缓存
+        # 如果距离上次刷新不到60分钟，直接返回缓存值
+        if current_time - self._last < 3600:  # 60分钟缓存
             return self._rate
 
         # 尝试即时刷新（测试可通过mock requests.get 控制返回）
@@ -244,13 +244,13 @@ class UsdExchangeRateService:
                 logging.info("异步刷新美元汇率: %.5f", new_rate)
             except (requests.RequestException, ValueError):
                 logging.exception("异步获取美元汇率失败，继续使用旧值")
-            time.sleep(1800)  # 30 分钟
+            time.sleep(3600)  # 60 分钟
 
     def get_exchange_rate(self) -> float:
         # 检查是否需要刷新（避免每次都发起网络请求）
         current_time = time.time()
-        # 如果距离上次刷新不到5分钟，直接返回缓存值
-        if current_time - self._last < 300:  # 5分钟缓存
+        # 如果距离上次刷新不到60分钟，直接返回缓存值
+        if current_time - self._last < 3600:  # 60分钟缓存
             return self._rate
 
         try:
