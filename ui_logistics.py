@@ -21,6 +21,31 @@ except ImportError:
     from exchange_service import ExchangeRateService, get_usd_rate
 
 
+def format_logistics_name(name: str, delivery_method: str, include_delivery: bool = True) -> str:
+    """
+    格式化物流名称
+    
+    Args:
+        name: 原始物流名称
+        delivery_method: 送货方式
+        include_delivery: 是否包含送货方式（True用于显示，False用于编辑）
+    
+    Returns:
+        格式化后的物流名称
+    """
+    if not include_delivery:
+        return name
+    
+    delivery_method_map = {
+        "home_delivery": "送货上门",
+        "pickup_point": "送货到取货点",
+        "unknown": "未知",
+    }
+    
+    delivery_display = delivery_method_map.get(delivery_method, "未知")
+    return f"{name} {delivery_display}"
+
+
 def logistics_page():
     """物流规则页面"""
     conn, c = get_db()
@@ -338,7 +363,7 @@ def logistics_page():
                         "first_fee, first_weight_g, continue_fee, "
                         "continue_unit, delivery_method, "
                         "price_limit_currency, price_min_currency) "
-                        "VALUES (?,?,?,?,?,?,?, "
+                        "VALUES (?,?,?,?,?,?,? "
                         "?,?,?,?,?,?,?,?, "
                         "?,?,?,?,?,?,?,?,?, "
                         "?,?,?,?,?,?,?,?,?,?,?)"
@@ -438,8 +463,11 @@ def logistics_page():
             st.write("**陆运**")
             if not land_df.empty:
                 for i, (_, row) in enumerate(land_df.iterrows()):
-                    delivery_display = delivery_method_map.get(
-                        str(row["delivery_method"]), "未知"
+                    # 格式化物流名称（显示时包含送货方式）
+                    formatted_name = format_logistics_name(
+                        str(row['name']), 
+                        str(row["delivery_method"]), 
+                        include_delivery=True
                     )
                     base_fee_str = f"¥{row['base_fee']:.2f}".rstrip(
                         "0"
@@ -461,11 +489,11 @@ def logistics_page():
                     )
 
                     logistics_info = (
-                        f"{i + 1} | {row['name']} | "
+                        f"{i + 1} | {formatted_name} | "
                         f"{row['min_days']}-{row['max_days']}天 | "
                         f"{base_fee_str} | "
                         f"{continue_fee_str} | "
-                        f"{delivery_display}{special_items_str}"
+                        f"{special_items_str}"
                     )
                     st.write(logistics_info)
                     col_edit, col_del = st.columns(2)
@@ -497,8 +525,11 @@ def logistics_page():
             st.write("**空运**")
             if not air_df.empty:
                 for i, (_, row) in enumerate(air_df.iterrows()):
-                    delivery_display = delivery_method_map.get(
-                        str(row["delivery_method"]), "未知"
+                    # 格式化物流名称（显示时包含送货方式）
+                    formatted_name = format_logistics_name(
+                        str(row['name']), 
+                        str(row["delivery_method"]), 
+                        include_delivery=True
                     )
                     base_fee_str = f"¥{row['base_fee']:.2f}".rstrip(
                         "0"
@@ -520,11 +551,11 @@ def logistics_page():
                     )
 
                     logistics_info = (
-                        f"{i + 1} | {row['name']} | "
+                        f"{i + 1} | {formatted_name} | "
                         f"{row['min_days']}-{row['max_days']}天 | "
                         f"{base_fee_str} | "
                         f"{continue_fee_str} | "
-                        f"{delivery_display}{special_items_str}"
+                        f"{special_items_str}"
                     )
                     st.write(logistics_info)
                     col_edit, col_del = st.columns(2)
