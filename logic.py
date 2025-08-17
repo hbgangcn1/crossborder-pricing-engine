@@ -425,20 +425,64 @@ def calculate_pricing(product, land_logistics, air_logistics,
                 if cost is None:
                     continue
 
-                # 粗略估算价格
-                total_base_cost = (unit_price + labeling_fee + shipping_fee +
-                                   15 * rate + cost)
-                target_profit_margin = product_dict.get(
-                    "target_profit_margin", 0.2)
-                promotion_rate = product_dict.get("promotion_cost_rate", 0)
-                commission_rate = product_dict.get("commission_rate", 0.08)
-                withdrawal_rate = product_dict.get("withdrawal_fee_rate", 0.02)
-                payment_rate = product_dict.get("payment_processing_fee", 0)
+                # 浮动代理费价格计算
+                def calc_floating_price(
+                        cost_input,
+                        target_margin_input,
+                        promotion_rate_input,
+                        commission_rate_input,
+                        withdrawal_rate_input,
+                        payment_rate_input,
+                        rate_input,
+                        max_iter=3):
+                    """计算浮动代理费价格"""
+                    commission_fee = 15 * rate_input
+                    price = 0
 
-                rough = (total_base_cost / (1 - target_profit_margin)) / (
-                    (1 - promotion_rate) * (1 - commission_rate) *
-                    (1 - withdrawal_rate) * (1 - payment_rate)
+                    for _ in range(max_iter):
+                        calc_total_cost = cost_input + commission_fee
+                        denominator = ((1 - promotion_rate_input) *
+                                       (1 - commission_rate_input) *
+                                       (1 - withdrawal_rate_input) *
+                                       (1 - payment_rate_input))
+                        price = (calc_total_cost /
+                                 (1 - target_margin_input)) / denominator
+
+                        price_rub = price / rate_input
+                        new_commission_rub = max(15, min(200,
+                                                         price_rub * 0.02))
+                        new_commission_fee = new_commission_rub * rate_input
+
+                        if abs(new_commission_fee - commission_fee) < 0.001:
+                            break
+                        commission_fee = new_commission_fee
+
+                    return price, commission_fee / rate_input
+
+                # 基础成本（不包含代理费）
+                base_cost_calc = (unit_price + labeling_fee + shipping_fee +
+                                  cost)
+                filter_target_margin = product_dict.get(
+                    "target_profit_margin", 0.2)
+                filter_promotion_rate = product_dict.get(
+                    "promotion_cost_rate", 0)
+                filter_commission_rate = product_dict.get(
+                    "commission_rate", 0.08)
+                filter_withdrawal_rate = product_dict.get(
+                    "withdrawal_fee_rate", 0.02)
+                filter_payment_rate = product_dict.get(
+                    "payment_processing_fee", 0)
+
+                # 使用浮动代理费计算价格
+                rough, actual_commission = calc_floating_price(
+                    base_cost_calc, filter_target_margin,
+                    filter_promotion_rate, filter_commission_rate,
+                    filter_withdrawal_rate, filter_payment_rate, rate
                 )
+
+                # 添加调试信息
+                debug_info.append(f"浮动代理费: {actual_commission:.2f} RUB")
+                debug_info.append(f"估算价格: {rough:.2f} CNY")
 
                 # 价格限制检查
                 # 获取物流规则的价格限制
@@ -557,44 +601,65 @@ def calculate_pricing(product, land_logistics, air_logistics,
         land_best = select_best_by_priority(land_candidates, priority)
         air_best = select_best_by_priority(air_candidates, priority)
 
-        # 5. 最终价格
+        # 5. 最终价格 - 使用浮动代理费
         def _final_price(cost, debug_list=None):
-            final_total_cost = (
-                unit_price +
-                labeling_fee +
-                shipping_fee +
-                cost +
-                15 * rate
-            )
-            denominator = (
-                (1 - product.get("promotion_cost_rate", 0)) *
-                (1 - product.get("commission_rate", 0.08)) *
-                (1 - product.get("withdrawal_fee_rate", 0.02)) *
-                (1 - product.get("payment_processing_fee", 0))
+            # 使用与筛选阶段相同的浮动代理费计算方法
+            def calc_final_commission(
+                    cost_input,
+                    target_margin_input,
+                    promotion_rate_input,
+                    commission_rate_input,
+                    withdrawal_rate_input,
+                    payment_rate_input,
+                    rate_input,
+                    max_iter=5):
+                """计算最终价格的浮动代理费"""
+                commission_fee = 15 * rate_input
+                price = 0
+
+                for _ in range(max_iter):
+                    final_total_cost = cost_input + commission_fee
+                    price = (final_total_cost / (1 - target_margin_input)) / (
+                        (1 - promotion_rate_input) *
+                        (1 - commission_rate_input) *
+                        (1 - withdrawal_rate_input) *
+                        (1 - payment_rate_input)
+                    )
+
+                    price_rub = price / rate_input
+                    new_commission_rub = max(15, min(200, price_rub * 0.02))
+                    new_commission_fee = new_commission_rub * rate_input
+
+                    if abs(new_commission_fee - commission_fee) < 0.01:
+                        break
+                    commission_fee = new_commission_fee
+
+                return price, commission_fee / rate_input
+
+            # 基础成本（不包含代理费）
+            base_cost_calc = unit_price + labeling_fee + shipping_fee + cost
+            final_target_margin = product.get("target_profit_margin", 0.2)
+            final_promotion_rate = product.get("promotion_cost_rate", 0)
+            final_commission_rate = product.get("commission_rate", 0.08)
+            final_withdrawal_rate = product.get(
+                "withdrawal_fee_rate", 0.02)
+            final_payment_rate = product.get(
+                "payment_processing_fee", 0)
+
+            # 使用浮动代理费计算最终价格
+            final_price, actual_commission = calc_final_commission(
+                base_cost_calc, final_target_margin, final_promotion_rate,
+                final_commission_rate, final_withdrawal_rate,
+                final_payment_rate, rate
             )
 
-            # 检查分母是否为0
-            if denominator == 0:
-                if debug_list is not None:
-                    debug_list.append("分母为0，无法计算价格")
-                raise ZeroDivisionError("分母为0，无法计算价格")
-
-            price = round(
-                (final_total_cost /
-                 (1 - product.get("target_profit_margin", 0.2))) /
-                denominator, 2
-            )
             if debug_list is not None:
+                debug_list.append(f"最终浮动代理费: {actual_commission:.2f} RUB")
                 debug_list.append(
-                    "定价公式: (("
-                    f"{final_total_cost:.2f}) / (1 - "
-                    f"{product.get('target_profit_margin', 0.2)})"
-                    ") / "
-                    f"{denominator:.4f} = "
-                    f"{price:.2f}"
+                    "最终定价公式: (基础成本 + 浮动代理费) / (1 - 目标利润率) / 分母"
                 )
 
-            return price
+            return round(final_price, 2)
         land_debug = []
         air_debug = []
 
@@ -665,28 +730,77 @@ def calculate_pricing(product, land_logistics, air_logistics,
         # 计算建议售价和利润
         suggested_price = land_price if land_price else air_price
         if suggested_price:
-            # 根据定价公式计算预期利润
+            # 根据定价公式计算预期利润（使用浮动代理费）
             # 定价公式：价格 = (总成本 / (1 - 目标利润率)) / 分母
-            # 总成本 = 产品成本 + 贴标费 + 运费 + 物流成本 + 15 * 汇率
+            # 总成本 = 产品成本 + 贴标费 + 运费 + 物流成本 + 浮动代理费
             # 分母 = (1 - 推广费率) * (1 - 佣金率) * (1 - 提现费率) * (1 - 支付处理费率)
 
             # 实际总成本（不包括各种费率扣除）
             logistics_cost = (land_cost if land_cost is not None
                               else (air_cost if air_cost is not None else 0))
-            total_cost = (unit_price + labeling_fee + shipping_fee +
-                          logistics_cost + 15 * rate)
+
+            # 计算浮动代理费
+            def calc_profit_commission(
+                    cost_input,
+                    target_margin_input,
+                    promotion_rate_input,
+                    commission_rate_input,
+                    withdrawal_rate_input,
+                    payment_rate_input,
+                    rate_input,
+                    max_iter=5):
+                """计算预期利润的浮动代理费"""
+                commission_fee = 15 * rate_input
+
+                for _ in range(max_iter):
+                    profit_total_cost = cost_input + commission_fee
+                    price = (profit_total_cost / (1 - target_margin_input)) / (
+                        (1 - promotion_rate_input) *
+                        (1 - commission_rate_input) *
+                        (1 - withdrawal_rate_input) *
+                        (1 - payment_rate_input)
+                    )
+
+                    price_rub = price / rate_input
+                    new_commission_rub = max(15, min(200, price_rub * 0.02))
+                    new_commission_fee = new_commission_rub * rate_input
+
+                    if abs(new_commission_fee - commission_fee) < 0.01:
+                        break
+                    commission_fee = new_commission_fee
+
+                return commission_fee / rate_input
+
+            # 基础成本（不包含代理费）
+            profit_base_cost = (unit_price + labeling_fee + shipping_fee +
+                                logistics_cost)
+            profit_target_margin = product.get("target_profit_margin", 0.2)
+            profit_promotion_rate = product.get("promotion_cost_rate", 0)
+            profit_commission_rate = product.get("commission_rate", 0.08)
+            profit_withdrawal_rate = product.get(
+                "withdrawal_fee_rate", 0.02)
+            profit_payment_rate = product.get(
+                "payment_processing_fee", 0)
+
+            # 计算浮动代理费
+            profit_actual_commission = calc_profit_commission(
+                profit_base_cost, profit_target_margin, profit_promotion_rate,
+                profit_commission_rate, profit_withdrawal_rate,
+                profit_payment_rate, rate
+            )
+
+            # 包含浮动代理费的总成本
+            total_cost = profit_base_cost + profit_actual_commission * rate
 
             # 根据定价公式，价格 = (总成本 / (1 - 目标利润率)) / 分母
             # 所以：总成本 = 价格 * 分母 * (1 - 目标利润率)
             # 预期利润 = 总成本 * 目标利润率 / (1 - 目标利润率)
             # 这是基于总成本的利润率计算
-            target_margin = product.get("target_profit_margin", 0.2)
-            expected_profit = (total_cost * target_margin /
-                               (1 - target_margin))
+            expected_profit = (total_cost * profit_target_margin /
+                               (1 - profit_target_margin))
 
             # 利润率 = 预期利润 / 总成本 × 100% = 目标利润率
-            target_margin_value = product.get("target_profit_margin", 0.2)
-            calculated_profit_margin = target_margin_value * 100
+            calculated_profit_margin = profit_target_margin * 100
 
         else:
             expected_profit = 0
